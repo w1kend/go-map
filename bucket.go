@@ -7,37 +7,49 @@ const (
 )
 
 type Bucket[T any] struct {
-	k []string
-	v []T
+	len     int
+	tophash [bucketSize]uint8
+
+	keys   [bucketSize]string
+	values [bucketSize]T
 }
 
-func NewBucket[T any]() *Bucket[T] {
-	return &Bucket[T]{
-		k: make([]string, 0, bucketSize),
-		v: make([]T, 0, bucketSize),
-	}
-}
-
-func (b Bucket[T]) Get(key string) T {
+func (b Bucket[T]) Get(key string, _ uint8) T {
 	if i := b.indexOf(key); i != zeroIdx {
-		return b.v[i]
+		return b.values[i]
 	}
 	return *new(T)
 }
 
-func (b *Bucket[T]) Put(key string, value T) {
+func (b *Bucket[T]) Put(key string, _ uint8, value T) {
 	if i := b.indexOf(key); i != zeroIdx {
-		b.v[i] = value
+		b.values[i] = value
 		return
 	}
 
-	b.k = append(b.k, key)
-	b.v = append(b.v, value)
+	// check bounds
+	if b.len > bucketSize {
+		return
+	}
+
+	b.keys[b.len] = key
+	b.values[b.len] = value
+	b.len++
+}
+
+func (b *Bucket[T]) Delete(key string) {
+	if i := b.indexOf(key); i != zeroIdx {
+		b.keys[i] = *new(string)
+		// if it was the last element
+		if i == b.len {
+			b.len--
+		}
+	}
 }
 
 func (b Bucket[T]) indexOf(key string) int {
-	for i := range b.k {
-		if b.k[i] == key {
+	for i := 0; i < b.len; i++ {
+		if b.keys[i] == key {
 			return i
 		}
 	}
@@ -46,5 +58,5 @@ func (b Bucket[T]) indexOf(key string) int {
 }
 
 func (b Bucket[T]) Len() int {
-	return len(b.k)
+	return b.len
 }

@@ -2,6 +2,8 @@ package gomap
 
 import (
 	"math/rand"
+
+	"github.com/dgryski/go-wyhash"
 )
 
 const (
@@ -13,15 +15,18 @@ const (
 	loadFactorDen = 2
 )
 
-type Hmap struct {
-	B     uint8 // log_2 of # of buckets
-	hash0 uint32
+type Hmap[T any] struct {
+	Len  int
+	B    uint8 // log_2 of # of buckets
+	seed uint64
+
+	buckets []Bucket[T]
 }
 
-func NewHmap(size int) *Hmap {
-	h := new(Hmap)
+func New[T any](size int) *Hmap[T] {
+	h := new(Hmap[T])
 
-	h.hash0 = fastrand()
+	h.seed = generateSeed()
 
 	B := uint8(0)
 	for overLoadFactor(size, B) {
@@ -29,25 +34,58 @@ func NewHmap(size int) *Hmap {
 	}
 	h.B = B
 
+	h.buckets = make([]Bucket[T], size)
+
 	return h
 }
 
-// bucketShift returns 1<<b
-func bucketShift(b uint8) uint {
+func (h Hmap[T]) Get(key string) T {
+	tophash, targetBucket := h.locateBucket(key)
+
+	return h.buckets[targetBucket].Get(key, tophash)
+}
+
+func (h Hmap[T]) Put(key string, value T) {
+	tophash, targetBucket := h.locateBucket(key)
+
+	h.buckets[targetBucket].Put(key, tophash, value)
+}
+
+func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
+	hash := hash(key, h.seed)
+	tophash = topHash(hash)
+	mask := bucketsNum(h.B)
+	targetBucket = hash & mask
+
+	return tophash, targetBucket
+}
+
+// returns first 8 bits from the val
+func topHash(val uint64) uint8 {
+	return uint8(val >> 56)
+}
+
+// bucketShift returns 1<<b - actual number of buckets
+func bucketsNum(b uint8) uint64 {
 	// Masking the shift amount allows overflow checks to be elided.
 	return 1 << b
 }
 
 // bucketMask returns 1<<b - 1
-func bucketMask(b uint8) uint {
-	return bucketShift(b) - 1
+func bucketMask(b uint8) uint64 {
+	return bucketsNum(b) - 1
 }
 
-func fastrand() uint32 {
-	return rand.Uint32()
+func generateSeed() uint64 {
+	return rand.Uint64()
 }
 
 // overLoadFactor reports whether count items placed in 1<<B buckets is over loadFactor.
-func overLoadFactor(count int, B uint8) bool {
-	return count > bucketCnt && uint(count) > loadFactorNum*(bucketShift(B)/loadFactorDen)
+func overLoadFactor(size int, B uint8) bool {
+	return size > bucketCnt && uint64(size) > loadFactorNum/loadFactorDen*bucketsNum(B)
+}
+
+// hash - returns hash of the key
+func hash(key string, seed uint64) uint64 {
+	return wyhash.Hash([]byte(key), seed)
 }
