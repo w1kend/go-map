@@ -15,6 +15,7 @@ const (
 	loadFactorDen = 2
 )
 
+// Hmap - map struct
 type Hmap[T any] struct {
 	Len  int
 	B    uint8 // log_2 of # of buckets
@@ -23,6 +24,7 @@ type Hmap[T any] struct {
 	buckets []Bucket[T]
 }
 
+// New - creates a new map for <size> elements
 func New[T any](size int) *Hmap[T] {
 	h := new(Hmap[T])
 
@@ -34,27 +36,43 @@ func New[T any](size int) *Hmap[T] {
 	}
 	h.B = B
 
-	h.buckets = make([]Bucket[T], size)
+	h.buckets = make([]Bucket[T], bucketsNum(h.B))
+
+	// fmt.Printf("created map:\nseed - %d\nB - %d\nbuckets count - %d\n", h.seed, h.B, bucketsNum(h.B))
 
 	return h
 }
 
+// Get - gets value from the map.
+// returns zero value for <T> if there is no value for the given key
 func (h Hmap[T]) Get(key string) T {
 	tophash, targetBucket := h.locateBucket(key)
 
 	return h.buckets[targetBucket].Get(key, tophash)
 }
 
+// Put - puts value into the map
 func (h Hmap[T]) Put(key string, value T) {
 	tophash, targetBucket := h.locateBucket(key)
 
-	h.buckets[targetBucket].Put(key, tophash, value)
+	if h.buckets[targetBucket].Put(key, tophash, value) {
+		h.Len++
+	}
 }
 
+// locateBucket - returns bucket index, where to put/search a value
+// and tophash value from hash of the given key
 func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 	hash := hash(key, h.seed)
 	tophash = topHash(hash)
-	mask := bucketsNum(h.B)
+	mask := bucketMask(h.B)
+
+	// calculete target bucket number, from N available
+	// mask represents N-1
+	// for N=9  it's 0111
+	// for N=16 it's 1111, etc.
+	// then, using binary and (hash & mask) we can get up to N different values(index of bucket)
+	// where to put/search a value for a given key
 	targetBucket = hash & mask
 
 	return tophash, targetBucket
@@ -62,7 +80,11 @@ func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 
 // returns first 8 bits from the val
 func topHash(val uint64) uint8 {
-	return uint8(val >> 56)
+	tophash := uint8(val >> 56)
+	if tophash < minTopHash {
+		tophash += minTopHash
+	}
+	return tophash
 }
 
 // bucketShift returns 1<<b - actual number of buckets
