@@ -57,3 +57,13 @@ func TestBucketOverflow(t *testing.T) {
 		isEqual(t, got, v)
 	}
 }
+
+func FuzzMap(f *testing.F) {
+	f.Fuzz(func(t *testing.T, key string) {
+		m := New[string](1)
+		m.Put(key, key)
+		if v := m.Get(key); v != key {
+			t.Fatal(v, "!==", key)
+		}
+	})
+}

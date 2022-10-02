@@ -108,14 +108,6 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 // 	}
 // }
 
-// func (b Bucket[T]) indexOf(topHash uint8, key string) int {
-// 	for i := 0; i < len(b.tophash); i++ {
-
-// 	}
-
-// 	return zeroIdx
-// }
-
 // Len - returns number of stored elements, including overflow buckets.
 func (b Bucket[T]) Len() int {
 	l := b.len
@@ -130,12 +122,14 @@ func isCellEmpty(val uint8) bool {
 	return val <= emptyCell
 }
 
-func (b Bucket[T]) PrintState() {
-	fmt.Println("========================")
-	fmt.Println("len", b.len)
-	fmt.Println("tophash", b.tophash)
-	fmt.Println("keys", b.keys)
-	fmt.Println("values", b.values)
-	fmt.Println("overflow", b.overflow)
-	fmt.Println("========================")
+func (b Bucket[T]) PrintState() string {
+	str := "========================\n"
+	str += fmt.Sprintln("len", b.len)
+	str += fmt.Sprintln("tophash", b.tophash)
+	str += fmt.Sprintln("keys", b.keys)
+	str += fmt.Sprintln("values", b.values)
+	str += fmt.Sprintln("overflow", b.overflow)
+	str += fmt.Sprintln("========================")
+
+	return str
 }

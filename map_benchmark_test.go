@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var sizes = []int{8, 64, 128}
+var sizes = []int{128, 512, 1024, 2048, 4096}
 
 func BenchmarkGet(b *testing.B) {
 	for _, n := range sizes {

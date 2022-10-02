@@ -60,6 +60,12 @@ func (h Hmap[T]) Put(key string, value T) {
 	}
 }
 
+func (h Hmap[T]) DescribeBucket(key string) string {
+	_, targetBucket := h.locateBucket(key)
+
+	return h.buckets[targetBucket].PrintState()
+}
+
 // locateBucket - returns bucket index, where to put/search a value
 // and tophash value from hash of the given key
 func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
