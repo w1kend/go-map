@@ -3,6 +3,7 @@ package gomap
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 )
 
@@ -66,4 +67,49 @@ func FuzzMap(f *testing.F) {
 			t.Fatal(v, "!==", key)
 		}
 	})
+}
+
+func TestMapIteration(t *testing.T) {
+	m := New[int64](100)
+
+	n := 100
+	wantKeys := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		k := fmt.Sprintf("k%d", i)
+		m.Put(k, int64(i)*10)
+		wantKeys = append(wantKeys, k)
+	}
+
+	gotKeys := make([]string, 0, n)
+	for key := range m.Iterate1() {
+		gotKeys = append(gotKeys, key)
+	}
+
+	sort.Strings(wantKeys)
+	sort.Strings(gotKeys)
+
+	isEqual(t, gotKeys, wantKeys)
+}
+
+func TestMapIteration2(t *testing.T) {
+	m := New[int64](100)
+
+	n := 100
+	wantKeys := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		k := fmt.Sprintf("k%d", i)
+		m.Put(k, int64(i)*10)
+		wantKeys = append(wantKeys, k)
+	}
+
+	gotKeys := make([]string, 0, n)
+	for pair := range m.Iterate2() {
+		gotKeys = append(gotKeys, pair.Key)
+		isEqual(t, pair.Value, m.Get(pair.Key))
+	}
+
+	sort.Strings(wantKeys)
+	sort.Strings(gotKeys)
+
+	isEqual(t, gotKeys, wantKeys)
 }

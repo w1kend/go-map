@@ -33,7 +33,7 @@ func (b Bucket[T]) Get(key string, topHash uint8) T {
 			continue
 		}
 
-		if !isCellEmpty(b.tophash[i]) {
+		if !isCellEmpty(b.tophash[i]) && b.keys[i] == key {
 			return b.values[i]
 		}
 	}

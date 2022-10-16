@@ -117,3 +117,71 @@ func overLoadFactor(size int, B uint8) bool {
 func hash(key string, seed uint64) uint64 {
 	return wyhash.Hash([]byte(key), seed)
 }
+
+func (m Hmap[T]) Iterate1() <-chan string {
+	ch := make(chan string)
+
+	go m.iterate1(ch)
+
+	return ch
+}
+
+func (m Hmap[T]) iterate1(c chan string) {
+	for i := range m.buckets {
+		bucket := &m.buckets[i]
+		for bucket != nil {
+			for j, th := range bucket.tophash {
+				// move to the next bucket when there are no values after index j
+				if th == emptyRest {
+					continue
+				}
+				// if there is a value at index j
+				if th >= minTopHash {
+					c <- bucket.keys[j]
+				}
+			}
+			// check overflow buckets
+			bucket = bucket.overflow
+		}
+	}
+
+	close(c)
+}
+
+func (m Hmap[T]) Iterate2() <-chan Pair[T] {
+	ch := make(chan Pair[T])
+
+	go m.iterate2(ch)
+
+	return ch
+}
+
+func (m Hmap[T]) iterate2(c chan Pair[T]) {
+	for i := range m.buckets {
+		bucket := &m.buckets[i]
+		for bucket != nil {
+			for j, th := range bucket.tophash {
+				// move to the next bucket when there are no values after index j
+				if th == emptyRest {
+					continue
+				}
+				// if there is a value at index j
+				if th >= minTopHash {
+					c <- Pair[T]{
+						Key:   bucket.keys[j],
+						Value: bucket.values[j],
+					}
+				}
+			}
+			// check overflow buckets
+			bucket = bucket.overflow
+		}
+	}
+
+	close(c)
+}
+
+type Pair[T any] struct {
+	Key   string
+	Value T
+}
