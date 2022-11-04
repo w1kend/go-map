@@ -5,12 +5,12 @@ import "fmt"
 const (
 	bucketSize = 8
 
-	// this and all other cells with bigger index are empty
-	emptyRest = 0
-	// there is no value at that index
-	emptyCell = 1
-	// minimum topHash value for filled cell
-	minTopHash = 5
+	emptyRest      = 0 // this and all other cells with bigger index are empty
+	emptyCell      = 1 // there is no value at that index
+	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
+	evacuatedY     = 3 // same as above, but evacuated to second half of larger table.
+	evacuatedEmpty = 4 // cell is empty, bucket is evacuated.
+	minTopHash     = 5 // minimum topHash value for filled cell
 )
 
 type Bucket[T any] struct {

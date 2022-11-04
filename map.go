@@ -1,14 +1,13 @@
 package gomap
 
 import (
+	"fmt"
 	"math/rand"
 
 	"github.com/dgryski/go-wyhash"
 )
 
 const (
-	bucketCnt = 8
-
 	// Maximum average load of a bucket that triggers growth is 6.5.
 	// Represent as loadFactorNum/loadFactorDen, to allow integer math.
 	loadFactorNum = 13
@@ -17,8 +16,8 @@ const (
 
 // Hmap - map struct
 type Hmap[T any] struct {
-	Len  int
-	B    uint8 // log_2 of # of buckets
+	len  int
+	b    uint8 // log_2 of # of buckets
 	seed uint64
 
 	buckets []Bucket[T]
@@ -34,9 +33,9 @@ func New[T any](size int) *Hmap[T] {
 	for overLoadFactor(size, B) {
 		B++
 	}
-	h.B = B
+	h.b = B
 
-	h.buckets = make([]Bucket[T], bucketsNum(h.B))
+	h.buckets = make([]Bucket[T], bucketsNum(h.b))
 
 	// fmt.Printf("created map:\nseed - %d\nB - %d\nbuckets count - %d\n", h.seed, h.B, bucketsNum(h.B))
 
@@ -56,7 +55,7 @@ func (h Hmap[T]) Put(key string, value T) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	if h.buckets[targetBucket].Put(key, tophash, value) {
-		h.Len++
+		h.len++
 	}
 }
 
@@ -71,7 +70,7 @@ func (h Hmap[T]) DescribeBucket(key string) string {
 func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 	hash := hash(key, h.seed)
 	tophash = topHash(hash)
-	mask := bucketMask(h.B)
+	mask := bucketMask(h.b)
 
 	// calculete target bucket number, from N available
 	// mask represents N-1
@@ -80,6 +79,18 @@ func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 	// then, using binary and (hash & mask) we can get up to N different values(index of bucket)
 	// where to put/search a value for a given key
 	targetBucket = hash & mask
+	fmt.Printf(
+		"seed - %d\n hash - %.8b(%d)\n tophash - %.8b(%d)\n mask - %.8b(%d)\n targetbucket - %.8b(%d)\n",
+		h.seed,
+		hash,
+		hash,
+		tophash,
+		tophash,
+		mask,
+		mask,
+		targetBucket,
+		targetBucket,
+	)
 
 	return tophash, targetBucket
 }
@@ -110,7 +121,7 @@ func generateSeed() uint64 {
 
 // overLoadFactor reports whether count items placed in 1<<B buckets is over loadFactor.
 func overLoadFactor(size int, B uint8) bool {
-	return size > bucketCnt && uint64(size) > loadFactorNum/loadFactorDen*bucketsNum(B)
+	return size > bucketSize && uint64(size) > loadFactorNum*(bucketsNum(B)/loadFactorDen)
 }
 
 // hash - returns hash of the key
@@ -118,6 +129,7 @@ func hash(key string, seed uint64) uint64 {
 	return wyhash.Hash([]byte(key), seed)
 }
 
+// Iterate1 - modeling iteration using channel
 func (m Hmap[T]) Iterate1() <-chan string {
 	ch := make(chan string)
 
@@ -148,6 +160,7 @@ func (m Hmap[T]) iterate1(c chan string) {
 	close(c)
 }
 
+// Iterate2 - modeling iteration with keys and values using channel
 func (m Hmap[T]) Iterate2() <-chan Pair[T] {
 	ch := make(chan Pair[T])
 
@@ -179,6 +192,11 @@ func (m Hmap[T]) iterate2(c chan Pair[T]) {
 	}
 
 	close(c)
+}
+
+// Len - returns the length of the map
+func (m Hmap[T]) Len() int {
+	return m.len
 }
 
 type Pair[T any] struct {
