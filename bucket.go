@@ -98,15 +98,30 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 	return isAdded
 }
 
-// func (b *Bucket[T]) Delete(key string) {
-// 	if i := b.indexOf(key); i != zeroIdx {
-// 		b.keys[i] = *new(string)
-// 		// if it was the last element
-// 		if i == b.len {
-// 			b.len--
-// 		}
-// 	}
-// }
+// Delete - deletes an element with the given key
+func (b *Bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
+	for i := range b.tophash {
+		if b.tophash[i] != topHash {
+			// if there are no filled cells we return
+			if b.tophash[i] == emptyRest {
+				return false
+			}
+			continue
+		}
+
+		if b.keys[i] == key {
+			b.tophash[i] = emptyCell
+			return true
+		}
+	}
+
+	// check if the key exists in the overflow bucket
+	if b.overflow != nil {
+		return b.overflow.Delete(key, topHash)
+	}
+
+	return false
+}
 
 // Len - returns number of stored elements, including overflow buckets.
 func (b Bucket[T]) Len() int {

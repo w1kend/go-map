@@ -1,7 +1,6 @@
 package gomap
 
 import (
-	"fmt"
 	"math/rand"
 
 	"github.com/dgryski/go-wyhash"
@@ -59,6 +58,14 @@ func (h Hmap[T]) Put(key string, value T) {
 	}
 }
 
+// Delete - deletes an element from the map
+func (h Hmap[T]) Delete(key string) {
+	tophash, targetBucket := h.locateBucket(key)
+	if deleted := h.buckets[targetBucket].Delete(key, tophash); deleted {
+		h.len--
+	}
+}
+
 func (h Hmap[T]) DescribeBucket(key string) string {
 	_, targetBucket := h.locateBucket(key)
 
@@ -79,18 +86,18 @@ func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 	// then, using binary and (hash & mask) we can get up to N different values(index of bucket)
 	// where to put/search a value for a given key
 	targetBucket = hash & mask
-	fmt.Printf(
-		"seed - %d\n hash - %.8b(%d)\n tophash - %.8b(%d)\n mask - %.8b(%d)\n targetbucket - %.8b(%d)\n",
-		h.seed,
-		hash,
-		hash,
-		tophash,
-		tophash,
-		mask,
-		mask,
-		targetBucket,
-		targetBucket,
-	)
+	// fmt.Printf(
+	// 	"seed - %d\n hash - %.8b(%d)\n tophash - %.8b(%d)\n mask - %.8b(%d)\n targetbucket - %.8b(%d)\n",
+	// 	h.seed,
+	// 	hash,
+	// 	hash,
+	// 	tophash,
+	// 	tophash,
+	// 	mask,
+	// 	mask,
+	// 	targetBucket,
+	// 	targetBucket,
+	// )
 
 	return tophash, targetBucket
 }
@@ -129,16 +136,9 @@ func hash(key string, seed uint64) uint64 {
 	return wyhash.Hash([]byte(key), seed)
 }
 
-// Iterate1 - modeling iteration using channel
-func (m Hmap[T]) Iterate1() <-chan string {
-	ch := make(chan string)
-
-	go m.iterate1(ch)
-
-	return ch
-}
-
-func (m Hmap[T]) iterate1(c chan string) {
+// Range - iterates through the map and calls the given func for each key, value.
+// if the given func returns false, loop breaks.
+func (m Hmap[T]) Range(f func(key string, value T) bool) {
 	for i := range m.buckets {
 		bucket := &m.buckets[i]
 		for bucket != nil {
@@ -149,40 +149,8 @@ func (m Hmap[T]) iterate1(c chan string) {
 				}
 				// if there is a value at index j
 				if th >= minTopHash {
-					c <- bucket.keys[j]
-				}
-			}
-			// check overflow buckets
-			bucket = bucket.overflow
-		}
-	}
-
-	close(c)
-}
-
-// Iterate2 - modeling iteration with keys and values using channel
-func (m Hmap[T]) Iterate2() <-chan Pair[T] {
-	ch := make(chan Pair[T])
-
-	go m.iterate2(ch)
-
-	return ch
-}
-
-func (m Hmap[T]) iterate2(c chan Pair[T]) {
-	for i := range m.buckets {
-		bucket := &m.buckets[i]
-		for bucket != nil {
-			for j, th := range bucket.tophash {
-				// move to the next bucket when there are no values after index j
-				if th == emptyRest {
-					continue
-				}
-				// if there is a value at index j
-				if th >= minTopHash {
-					c <- Pair[T]{
-						Key:   bucket.keys[j],
-						Value: bucket.values[j],
+					if !f(bucket.keys[j], bucket.values[j]) {
+						return
 					}
 				}
 			}
@@ -190,16 +158,9 @@ func (m Hmap[T]) iterate2(c chan Pair[T]) {
 			bucket = bucket.overflow
 		}
 	}
-
-	close(c)
 }
 
 // Len - returns the length of the map
 func (m Hmap[T]) Len() int {
 	return m.len
-}
-
-type Pair[T any] struct {
-	Key   string
-	Value T
 }

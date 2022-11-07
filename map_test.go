@@ -43,8 +43,8 @@ func isEqual(t *testing.T, got interface{}, want interface{}) {
 }
 
 func TestBucketOverflow(t *testing.T) {
-	// create map with 1 bucket
-	mm := New[int](1)
+	// create map with 8 elements(1 bucket)
+	mm := New[int](8)
 
 	values := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
 	prefix := "key_"
@@ -69,44 +69,24 @@ func FuzzMap(f *testing.F) {
 	})
 }
 
-func TestMapIteration(t *testing.T) {
+func TestRange(t *testing.T) {
 	m := New[int64](100)
 
 	n := 100
 	wantKeys := make([]string, 0, n)
+
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("k%d", i)
-		m.Put(k, int64(i)*10)
+		v := int64(i) * 10
+		m.Put(k, v)
 		wantKeys = append(wantKeys, k)
 	}
 
 	gotKeys := make([]string, 0, n)
-	for key := range m.Iterate1() {
+	m.Range(func(key string, value int64) bool {
 		gotKeys = append(gotKeys, key)
-	}
-
-	sort.Strings(wantKeys)
-	sort.Strings(gotKeys)
-
-	isEqual(t, gotKeys, wantKeys)
-}
-
-func TestMapIteration2(t *testing.T) {
-	m := New[int64](100)
-
-	n := 100
-	wantKeys := make([]string, 0, n)
-	for i := 0; i < n; i++ {
-		k := fmt.Sprintf("k%d", i)
-		m.Put(k, int64(i)*10)
-		wantKeys = append(wantKeys, k)
-	}
-
-	gotKeys := make([]string, 0, n)
-	for pair := range m.Iterate2() {
-		gotKeys = append(gotKeys, pair.Key)
-		isEqual(t, pair.Value, m.Get(pair.Key))
-	}
+		return true
+	})
 
 	sort.Strings(wantKeys)
 	sort.Strings(gotKeys)
