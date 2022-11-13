@@ -76,7 +76,7 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 		}
 
 		b.values[i] = value
-		return
+		return false
 	}
 
 	// we have no space in this bucket. check overflow or create a new one
@@ -85,17 +85,15 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 			b.overflow = &Bucket[T]{}
 		}
 
-		isAdded = b.overflow.Put(key, topHash, value)
-		return
+		return b.overflow.Put(key, topHash, value)
 	}
 
 	b.keys[*insertIdx] = key
 	b.values[*insertIdx] = value
 	b.tophash[*insertIdx] = topHash
 	b.len++
-	isAdded = true
 
-	return isAdded
+	return true
 }
 
 // Delete - deletes an element with the given key

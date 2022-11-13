@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestMapp(t *testing.T) {
+func TestMap(t *testing.T) {
 	mm := New[int64](8)
 
 	v := mm.Get("123")
@@ -74,22 +74,34 @@ func TestRange(t *testing.T) {
 
 	n := 100
 	wantKeys := make([]string, 0, n)
+	wantValues := make([]int64, 0, n)
 
 	for i := 0; i < n; i++ {
 		k := fmt.Sprintf("k%d", i)
 		v := int64(i) * 10
 		m.Put(k, v)
 		wantKeys = append(wantKeys, k)
+		wantValues = append(wantValues, v)
 	}
 
 	gotKeys := make([]string, 0, n)
+	gotValues := make([]int64, 0, n)
 	m.Range(func(key string, value int64) bool {
 		gotKeys = append(gotKeys, key)
+		gotValues = append(gotValues, value)
 		return true
 	})
 
 	sort.Strings(wantKeys)
 	sort.Strings(gotKeys)
-
 	isEqual(t, gotKeys, wantKeys)
+
+	i64Less := func(s []int64) func(i, j int) bool {
+		return func(i, j int) bool {
+			return s[i] < s[j]
+		}
+	}
+	sort.Slice(wantValues, i64Less(wantValues))
+	sort.Slice(gotValues, i64Less(gotValues))
+	isEqual(t, wantValues, gotValues)
 }

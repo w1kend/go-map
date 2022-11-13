@@ -139,7 +139,7 @@ func hash(key string, seed uint64) uint64 {
 // Range - iterates through the map and calls the given func for each key, value.
 // if the given func returns false, loop breaks.
 func (m Hmap[T]) Range(f func(key string, value T) bool) {
-	for i := range m.buckets {
+	for i := range m.randRangeSequence() {
 		bucket := &m.buckets[i]
 		for bucket != nil {
 			for j, th := range bucket.tophash {
@@ -158,6 +158,21 @@ func (m Hmap[T]) Range(f func(key string, value T) bool) {
 			bucket = bucket.overflow
 		}
 	}
+}
+
+func (m Hmap[T]) randRangeSequence() []int {
+	i := rand.Intn(len(m.buckets))
+
+	seq := make([]int, 0, len(m.buckets))
+	for len(seq) != len(m.buckets) {
+		seq = append(seq, i)
+		i++
+		if i >= len(m.buckets) {
+			i = 0
+		}
+	}
+
+	return seq
 }
 
 // Len - returns the length of the map
