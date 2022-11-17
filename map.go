@@ -41,9 +41,18 @@ func New[T any](size int) *Hmap[T] {
 	return h
 }
 
-// Get - gets value from the map.
+// Get - gets the value for the given key.
 // returns zero value for <T> if there is no value for the given key
 func (h Hmap[T]) Get(key string) T {
+	tophash, targetBucket := h.locateBucket(key)
+
+	v, _ := h.buckets[targetBucket].Get(key, tophash)
+	return v
+}
+
+// Get2 - gets the value for the given key and the flag indicating whether the value exists
+// returns zero value for <T> and false if there is no value for the given key
+func (h Hmap[T]) Get2(key string) (T, bool) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	return h.buckets[targetBucket].Get(key, tophash)
@@ -138,7 +147,7 @@ func hash(key string, seed uint64) uint64 {
 
 // Range - iterates through the map and calls the given func for each key, value.
 // if the given func returns false, loop breaks.
-func (m Hmap[T]) Range(f func(key string, value T) bool) {
+func (m Hmap[T]) Range(f func(k string, v T) bool) {
 	for i := range m.randRangeSequence() {
 		bucket := &m.buckets[i]
 		for bucket != nil {

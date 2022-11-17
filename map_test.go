@@ -10,24 +10,13 @@ import (
 func TestMap(t *testing.T) {
 	mm := New[int64](8)
 
-	v := mm.Get("123")
-	isEqual(t, v, int64(0))
+	v, ok := mm.Get2("123")
+	isEqual(t, ok, false)
+	isEqual(t, v, *new(int64))
 
 	mm.Put("key1", 10)
 	v = mm.Get("key1")
 	isEqual(t, v, int64(10))
-
-	mm.Put("key2", 20)
-	v = mm.Get("key2")
-	isEqual(t, v, int64(20))
-
-	mm.Put("key2", 30)
-	v = mm.Get("key2")
-	isEqual(t, v, int64(30))
-
-	mm.Put("adsdadw1231", 4423)
-	v = mm.Get("adsdadw1231")
-	isEqual(t, v, int64(4423))
 
 	mm.Put("", 144)
 	isEqual(t, mm.Get(""), int64(144))
@@ -59,6 +48,31 @@ func TestBucketOverflow(t *testing.T) {
 	}
 }
 
+type NestedStruct struct {
+	A int64
+	B struct {
+		C string
+		D string
+		E struct {
+			F []int64
+		}
+	}
+}
+
+func TestGet2(t *testing.T) {
+	m := New[NestedStruct](10)
+
+	emptyStruct := NestedStruct{}
+	m.Put("123", emptyStruct)
+	got, ok := m.Get2("123")
+	isEqual(t, ok, true)
+	isEqual(t, got, emptyStruct)
+
+	got, ok = m.Get2("random_key")
+	isEqual(t, ok, false)
+	isEqual(t, got, emptyStruct)
+}
+
 func FuzzMap(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key string) {
 		m := New[string](1)
@@ -86,9 +100,9 @@ func TestRange(t *testing.T) {
 
 	gotKeys := make([]string, 0, n)
 	gotValues := make([]int64, 0, n)
-	m.Range(func(key string, value int64) bool {
-		gotKeys = append(gotKeys, key)
-		gotValues = append(gotValues, value)
+	m.Range(func(k string, v int64) bool {
+		gotKeys = append(gotKeys, k)
+		gotValues = append(gotValues, v)
 		return true
 	})
 

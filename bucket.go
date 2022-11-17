@@ -1,6 +1,8 @@
 package gomap
 
-import "fmt"
+import (
+	"fmt"
+)
 
 const (
 	bucketSize = 8
@@ -14,7 +16,6 @@ const (
 )
 
 type Bucket[T any] struct {
-	len     int
 	tophash [bucketSize]uint8
 
 	keys   [bucketSize]string
@@ -23,7 +24,9 @@ type Bucket[T any] struct {
 	overflow *Bucket[T]
 }
 
-func (b Bucket[T]) Get(key string, topHash uint8) T {
+// Get - returns an element for the given key.
+// If an element doesn't exist for the given key returns zero value for <T> and false.
+func (b Bucket[T]) Get(key string, topHash uint8) (T, bool) {
 	for i := range b.tophash {
 		if b.tophash[i] != topHash {
 			// if there are no filled cells we break the loop and return zero value
@@ -34,7 +37,7 @@ func (b Bucket[T]) Get(key string, topHash uint8) T {
 		}
 
 		if !isCellEmpty(b.tophash[i]) && b.keys[i] == key {
-			return b.values[i]
+			return b.values[i], true
 		}
 	}
 
@@ -43,7 +46,7 @@ func (b Bucket[T]) Get(key string, topHash uint8) T {
 		return b.overflow.Get(key, topHash)
 	}
 
-	return *new(T)
+	return *new(T), false
 }
 
 // Put - adds value to the bucket.
@@ -91,7 +94,6 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 	b.keys[*insertIdx] = key
 	b.values[*insertIdx] = value
 	b.tophash[*insertIdx] = topHash
-	b.len++
 
 	return true
 }
@@ -121,23 +123,12 @@ func (b *Bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
 	return false
 }
 
-// Len - returns number of stored elements, including overflow buckets.
-func (b Bucket[T]) Len() int {
-	l := b.len
-	if b.overflow != nil {
-		l += b.overflow.Len()
-	}
-
-	return l
-}
-
 func isCellEmpty(val uint8) bool {
 	return val <= emptyCell
 }
 
 func (b Bucket[T]) PrintState() string {
 	str := "========================\n"
-	str += fmt.Sprintln("len", b.len)
 	str += fmt.Sprintln("tophash", b.tophash)
 	str += fmt.Sprintln("keys", b.keys)
 	str += fmt.Sprintln("values", b.values)
