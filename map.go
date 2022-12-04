@@ -22,7 +22,6 @@ type hmap[T any] struct {
 	seed uint64
 
 	buckets []Bucket[T]
-	zero    *T
 }
 
 type Hashmap[T any] interface {
@@ -56,8 +55,6 @@ func New[T any](size int) Hashmap[T] {
 	h.b = B
 
 	h.buckets = make([]Bucket[T], bucketsNum(h.b))
-
-	h.zero = new(T)
 
 	return h
 }
