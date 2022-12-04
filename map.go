@@ -11,20 +11,41 @@ const (
 	// Represent as loadFactorNum/loadFactorDen, to allow integer math.
 	loadFactorNum = 13
 	loadFactorDen = 2
+
+	ptrSize = 4 << (^uintptr(0) >> 63) // pointer size
 )
 
-// Hmap - map struct
-type Hmap[T any] struct {
+// hmap - map struct
+type hmap[T any] struct {
 	len  int
 	b    uint8 // log_2 of # of buckets
 	seed uint64
 
 	buckets []Bucket[T]
+	zero    *T
+}
+
+type Hashmap[T any] interface {
+	// gets the value for the given key.
+	// returns zero value for <T> if there is no value for the given key
+	Get(key string) T
+	// gets the value for the given key and the flag indicating whether the value exists
+	// returns zero value for <T> and false if there is no value for the given key
+	Get2(key string) (T, bool)
+	// puts value into the map
+	Put(key string, value T)
+	// deletes an element from the map
+	Delete(key string)
+	// iterates through the map and calls the given func for each key, value.
+	// if the given func returns false, loop breaks.
+	Range(f func(k string, v T) bool)
+	// returns the length of the map
+	Len() int
 }
 
 // New - creates a new map for <size> elements
-func New[T any](size int) *Hmap[T] {
-	h := new(Hmap[T])
+func New[T any](size int) Hashmap[T] {
+	h := new(hmap[T])
 
 	h.seed = generateSeed()
 
@@ -36,30 +57,25 @@ func New[T any](size int) *Hmap[T] {
 
 	h.buckets = make([]Bucket[T], bucketsNum(h.b))
 
-	// fmt.Printf("created map:\nseed - %d\nB - %d\nbuckets count - %d\n", h.seed, h.B, bucketsNum(h.B))
+	h.zero = new(T)
 
 	return h
 }
 
-// Get - gets the value for the given key.
-// returns zero value for <T> if there is no value for the given key
-func (h Hmap[T]) Get(key string) T {
+func (h hmap[T]) Get(key string) T {
 	tophash, targetBucket := h.locateBucket(key)
 
 	v, _ := h.buckets[targetBucket].Get(key, tophash)
 	return v
 }
 
-// Get2 - gets the value for the given key and the flag indicating whether the value exists
-// returns zero value for <T> and false if there is no value for the given key
-func (h Hmap[T]) Get2(key string) (T, bool) {
+func (h hmap[T]) Get2(key string) (T, bool) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	return h.buckets[targetBucket].Get(key, tophash)
 }
 
-// Put - puts value into the map
-func (h Hmap[T]) Put(key string, value T) {
+func (h hmap[T]) Put(key string, value T) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	if h.buckets[targetBucket].Put(key, tophash, value) {
@@ -67,53 +83,34 @@ func (h Hmap[T]) Put(key string, value T) {
 	}
 }
 
-// Delete - deletes an element from the map
-func (h Hmap[T]) Delete(key string) {
+func (h hmap[T]) Delete(key string) {
 	tophash, targetBucket := h.locateBucket(key)
 	if deleted := h.buckets[targetBucket].Delete(key, tophash); deleted {
 		h.len--
 	}
 }
 
-func (h Hmap[T]) DescribeBucket(key string) string {
-	_, targetBucket := h.locateBucket(key)
-
-	return h.buckets[targetBucket].PrintState()
-}
-
 // locateBucket - returns bucket index, where to put/search a value
 // and tophash value from hash of the given key
-func (h Hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
+func (h hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
 	hash := hash(key, h.seed)
 	tophash = topHash(hash)
 	mask := bucketMask(h.b)
 
-	// calculete target bucket number, from N available
+	// calculate target bucket number, from N available
 	// mask represents N-1
 	// for N=9  it's 0111
 	// for N=16 it's 1111, etc.
 	// then, using binary and (hash & mask) we can get up to N different values(index of bucket)
 	// where to put/search a value for a given key
 	targetBucket = hash & mask
-	// fmt.Printf(
-	// 	"seed - %d\n hash - %.8b(%d)\n tophash - %.8b(%d)\n mask - %.8b(%d)\n targetbucket - %.8b(%d)\n",
-	// 	h.seed,
-	// 	hash,
-	// 	hash,
-	// 	tophash,
-	// 	tophash,
-	// 	mask,
-	// 	mask,
-	// 	targetBucket,
-	// 	targetBucket,
-	// )
 
 	return tophash, targetBucket
 }
 
 // returns first 8 bits from the val
 func topHash(val uint64) uint8 {
-	tophash := uint8(val >> 56)
+	tophash := uint8(val >> (ptrSize*8 - 8))
 	if tophash < minTopHash {
 		tophash += minTopHash
 	}
@@ -145,9 +142,7 @@ func hash(key string, seed uint64) uint64 {
 	return wyhash.Hash([]byte(key), seed)
 }
 
-// Range - iterates through the map and calls the given func for each key, value.
-// if the given func returns false, loop breaks.
-func (m Hmap[T]) Range(f func(k string, v T) bool) {
+func (m hmap[T]) Range(f func(k string, v T) bool) {
 	for i := range m.randRangeSequence() {
 		bucket := &m.buckets[i]
 		for bucket != nil {
@@ -169,7 +164,7 @@ func (m Hmap[T]) Range(f func(k string, v T) bool) {
 	}
 }
 
-func (m Hmap[T]) randRangeSequence() []int {
+func (m hmap[T]) randRangeSequence() []int {
 	i := rand.Intn(len(m.buckets))
 
 	seq := make([]int, 0, len(m.buckets))
@@ -184,7 +179,6 @@ func (m Hmap[T]) randRangeSequence() []int {
 	return seq
 }
 
-// Len - returns the length of the map
-func (m Hmap[T]) Len() int {
+func (m hmap[T]) Len() int {
 	return m.len
 }

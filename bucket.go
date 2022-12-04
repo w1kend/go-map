@@ -1,20 +1,14 @@
 package gomap
 
-import (
-	"fmt"
-)
-
 const (
 	bucketSize = 8
 
-	emptyRest      = 0 // this and all other cells with bigger index are empty
-	emptyCell      = 1 // there is no value at that index
-	evacuatedX     = 2 // key/elem is valid.  Entry has been evacuated to first half of larger table.
-	evacuatedY     = 3 // same as above, but evacuated to second half of larger table.
-	evacuatedEmpty = 4 // cell is empty, bucket is evacuated.
-	minTopHash     = 5 // minimum topHash value for filled cell
+	emptyRest  = 0 // this and all other cells with bigger index are empty
+	emptyCell  = 1 // there is no value at that index
+	minTopHash = 2 // minimum topHash value for filled cell
 )
 
+// Bucket - the Go's bucket explicit representation.
 type Bucket[T any] struct {
 	tophash [bucketSize]uint8
 
@@ -125,15 +119,4 @@ func (b *Bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
 
 func isCellEmpty(val uint8) bool {
 	return val <= emptyCell
-}
-
-func (b Bucket[T]) PrintState() string {
-	str := "========================\n"
-	str += fmt.Sprintln("tophash", b.tophash)
-	str += fmt.Sprintln("keys", b.keys)
-	str += fmt.Sprintln("values", b.values)
-	str += fmt.Sprintln("overflow", b.overflow)
-	str += fmt.Sprintln("========================")
-
-	return str
 }

@@ -23,6 +23,15 @@ func TestMap(t *testing.T) {
 
 	mm.Put(" ", 145)
 	isEqual(t, mm.Get(" "), int64(145))
+
+	mm.Delete("123")
+	v, ok = mm.Get2("123")
+	isEqual(t, ok, false)
+	isEqual(t, v, *new(int64))
+
+	mm.Put("key1", 20)
+	v = mm.Get("key1")
+	isEqual(t, v, int64(20))
 }
 
 func isEqual(t *testing.T, got interface{}, want interface{}) {

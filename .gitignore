@@ -15,5 +15,6 @@
 # vendor/
 
 .DS_Store
-alt/
 art/
+.vscode
+cmd

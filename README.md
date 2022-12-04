@@ -1,2 +1,3 @@
 # go-map
-map implementation
+
+Go's hashmap implementation using pure Go with generics.
