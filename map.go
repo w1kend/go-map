@@ -21,7 +21,7 @@ type hmap[T any] struct {
 	b    uint8 // log_2 of # of buckets
 	seed uint64
 
-	buckets []Bucket[T]
+	buckets []bucket[T]
 }
 
 type Hashmap[T any] interface {
@@ -54,7 +54,7 @@ func New[T any](size int) Hashmap[T] {
 	}
 	h.b = B
 
-	h.buckets = make([]Bucket[T], bucketsNum(h.b))
+	h.buckets = make([]bucket[T], bucketsNum(h.b))
 
 	return h
 }

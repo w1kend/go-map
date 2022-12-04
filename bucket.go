@@ -8,19 +8,19 @@ const (
 	minTopHash = 2 // minimum topHash value for filled cell
 )
 
-// Bucket - the Go's bucket explicit representation.
-type Bucket[T any] struct {
+// bucket - the Go's bucket explicit representation.
+type bucket[T any] struct {
 	tophash [bucketSize]uint8
 
 	keys   [bucketSize]string
 	values [bucketSize]T
 
-	overflow *Bucket[T]
+	overflow *bucket[T]
 }
 
 // Get - returns an element for the given key.
 // If an element doesn't exist for the given key returns zero value for <T> and false.
-func (b Bucket[T]) Get(key string, topHash uint8) (T, bool) {
+func (b bucket[T]) Get(key string, topHash uint8) (T, bool) {
 	for i := range b.tophash {
 		if b.tophash[i] != topHash {
 			// if there are no filled cells we break the loop and return zero value
@@ -46,7 +46,7 @@ func (b Bucket[T]) Get(key string, topHash uint8) (T, bool) {
 // Put - adds value to the bucket.
 // if the value for a given key already exists, it'll be replaced
 // if there is no place in this bucket for a new value, new overflow bucket will be created
-func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
+func (b *bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 	var insertIdx *int
 
 	for i := range b.tophash {
@@ -79,7 +79,7 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 	// we have no space in this bucket. check overflow or create a new one
 	if insertIdx == nil {
 		if b.overflow == nil {
-			b.overflow = &Bucket[T]{}
+			b.overflow = &bucket[T]{}
 		}
 
 		return b.overflow.Put(key, topHash, value)
@@ -93,7 +93,7 @@ func (b *Bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 }
 
 // Delete - deletes an element with the given key
-func (b *Bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
+func (b *bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
 	for i := range b.tophash {
 		if b.tophash[i] != topHash {
 			// if there are no filled cells we return
