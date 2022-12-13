@@ -32,6 +32,29 @@ func TestMap(t *testing.T) {
 	mm.Put("key1", 20)
 	v = mm.Get("key1")
 	isEqual(t, v, int64(20))
+
+	t.Run("target value in overflow bucket", func(t *testing.T) {
+		mm := New[int](8)
+		mm.Put("key0", 20)
+
+		for i := 0; i < 8; i++ {
+			mm.Put(fmt.Sprintf("key_%d", i), i*10)
+		}
+
+		mm.Put("key__1", 10)
+		// remove space for an element in the bucket
+		mm.Delete("key0")
+
+		// try to add a value in a hole. "key__1" now is stored in an overflow bucket
+		mm.Put("key__1", 20)
+		v := mm.Get("key__1")
+		isEqual(t, v, 20)
+		// the values must be deleted from the overflow bucket
+		mm.Delete("key__1")
+
+		v = mm.Get("key__1")
+		isEqual(t, v, 0)
+	})
 }
 
 func isEqual(t *testing.T, got interface{}, want interface{}) {

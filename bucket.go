@@ -20,24 +20,24 @@ type bucket[T any] struct {
 
 // Get - returns an element for the given key.
 // If an element doesn't exist for the given key returns zero value for <T> and false.
-func (b bucket[T]) Get(key string, topHash uint8) (T, bool) {
-	for i := range b.tophash {
-		if b.tophash[i] != topHash {
-			// if there are no filled cells we break the loop and return zero value
-			if b.tophash[i] == emptyRest {
-				break
+func (b *bucket[T]) Get(key string, topHash uint8) (T, bool) {
+	bkt := b
+	for bkt != nil {
+		for i := range bkt.tophash {
+			if bkt.tophash[i] != topHash {
+				// if there are no filled cells we break the loop and return zero value
+				if bkt.tophash[i] == emptyRest {
+					break
+				}
+				continue
 			}
-			continue
+
+			if !isCellEmpty(bkt.tophash[i]) && bkt.keys[i] == key {
+				return bkt.values[i], true
+			}
 		}
 
-		if !isCellEmpty(b.tophash[i]) && b.keys[i] == key {
-			return b.values[i], true
-		}
-	}
-
-	// check if the key exists in the overflow bucket
-	if b.overflow != nil {
-		return b.overflow.Get(key, topHash)
+		bkt = bkt.overflow
 	}
 
 	return *new(T), false
@@ -49,69 +49,73 @@ func (b bucket[T]) Get(key string, topHash uint8) (T, bool) {
 func (b *bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 	var insertIdx *int
 
-	for i := range b.tophash {
-		// comparing topHash bits, not keys
-		// because we can store there flags describing cell state such as cell is empty, cell is evacuating etc.
-		// also it's faster than comparing keys
-		if b.tophash[i] != topHash {
-			if b.tophash[i] == emptyRest {
-				insertIdx = new(int)
-				*insertIdx = i
+	bkt := b
+	for bkt != nil {
+		for i := range bkt.tophash {
+			// comparing topHash bits, not keys
+			// because we can store there flags describing cell state such as cell is empty, cell is evacuating etc.
+			// also it's faster than comparing keys
+			if bkt.tophash[i] != topHash {
+				if bkt.tophash[i] == emptyRest {
+					insertIdx = new(int)
+					*insertIdx = i
+					break
+				}
+
+				if insertIdx == nil && isCellEmpty(bkt.tophash[i]) {
+					insertIdx = new(int)
+					*insertIdx = i
+				}
+				continue
+			}
+
+			// when we have different keys but tophash is equal
+			if bkt.keys[i] != key {
+				continue
+			}
+
+			bkt.values[i] = value
+			return false
+		}
+
+		if bkt.overflow == nil {
+			// if current bucket is full
+			if insertIdx == nil {
+				bkt.overflow = &bucket[T]{}
+			} else { // break if we found a place for the value
 				break
 			}
-
-			if insertIdx == nil && isCellEmpty(b.tophash[i]) {
-				insertIdx = new(int)
-				*insertIdx = i
-			}
-			continue
 		}
 
-		// when we have different keys but tophash is equal
-		if b.keys[i] != key {
-			continue
-		}
-
-		b.values[i] = value
-		return false
+		bkt = bkt.overflow
 	}
 
-	// we have no space in this bucket. check overflow or create a new one
-	if insertIdx == nil {
-		if b.overflow == nil {
-			b.overflow = &bucket[T]{}
-		}
-
-		return b.overflow.Put(key, topHash, value)
-	}
-
-	b.keys[*insertIdx] = key
-	b.values[*insertIdx] = value
-	b.tophash[*insertIdx] = topHash
+	bkt.keys[*insertIdx] = key
+	bkt.values[*insertIdx] = value
+	bkt.tophash[*insertIdx] = topHash
 
 	return true
 }
 
 // Delete - deletes an element with the given key
 func (b *bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
-	for i := range b.tophash {
-		if b.tophash[i] != topHash {
-			// if there are no filled cells we return
-			if b.tophash[i] == emptyRest {
-				return false
+	bkt := b
+	for bkt != nil {
+		for i := range bkt.tophash {
+			if bkt.tophash[i] != topHash {
+				// if there are no filled cells we return
+				if bkt.tophash[i] == emptyRest {
+					return false
+				}
+				continue
 			}
-			continue
-		}
 
-		if b.keys[i] == key {
-			b.tophash[i] = emptyCell
-			return true
+			if bkt.keys[i] == key {
+				bkt.tophash[i] = emptyCell
+				return true
+			}
 		}
-	}
-
-	// check if the key exists in the overflow bucket
-	if b.overflow != nil {
-		return b.overflow.Delete(key, topHash)
+		bkt = bkt.overflow
 	}
 
 	return false
