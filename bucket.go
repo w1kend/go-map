@@ -9,18 +9,18 @@ const (
 )
 
 // bucket - the Go's bucket explicit representation.
-type bucket[T any] struct {
+type bucket[K comparable, V any] struct {
 	tophash [bucketSize]uint8
 
-	keys   [bucketSize]string
-	values [bucketSize]T
+	keys   [bucketSize]K
+	values [bucketSize]V
 
-	overflow *bucket[T]
+	overflow *bucket[K, V]
 }
 
 // Get - returns an element for the given key.
-// If an element doesn't exist for the given key returns zero value for <T> and false.
-func (b *bucket[T]) Get(key string, topHash uint8) (T, bool) {
+// If an element doesn't exist for the given key returns zero value for <V> and false.
+func (b *bucket[K, V]) Get(key K, topHash uint8) (V, bool) {
 	bkt := b
 	for bkt != nil {
 		for i := range bkt.tophash {
@@ -40,13 +40,13 @@ func (b *bucket[T]) Get(key string, topHash uint8) (T, bool) {
 		bkt = bkt.overflow
 	}
 
-	return *new(T), false
+	return *new(V), false
 }
 
 // Put - adds value to the bucket.
 // if the value for a given key already exists, it'll be replaced
 // if there is no place in this bucket for a new value, new overflow bucket will be created
-func (b *bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
+func (b *bucket[K, V]) Put(key K, topHash uint8, value V) (isAdded bool) {
 	var insertIdx *int
 
 	bkt := b
@@ -81,7 +81,7 @@ func (b *bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 		if bkt.overflow == nil {
 			// if current bucket is full
 			if insertIdx == nil {
-				bkt.overflow = &bucket[T]{}
+				bkt.overflow = &bucket[K, V]{}
 			} else { // break if we found a place for the value
 				break
 			}
@@ -98,7 +98,7 @@ func (b *bucket[T]) Put(key string, topHash uint8, value T) (isAdded bool) {
 }
 
 // Delete - deletes an element with the given key
-func (b *bucket[T]) Delete(key string, topHash uint8) (deleted bool) {
+func (b *bucket[K, V]) Delete(key K, topHash uint8) (deleted bool) {
 	bkt := b
 	for bkt != nil {
 		for i := range bkt.tophash {

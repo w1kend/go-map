@@ -8,7 +8,7 @@ import (
 )
 
 func TestMap(t *testing.T) {
-	mm := New[int64](8)
+	mm := New[string, int64](8)
 
 	v, ok := mm.Get2("123")
 	isEqual(t, ok, false)
@@ -34,7 +34,7 @@ func TestMap(t *testing.T) {
 	isEqual(t, v, int64(20))
 
 	t.Run("target value in overflow bucket", func(t *testing.T) {
-		mm := New[int](8)
+		mm := New[string, int](8)
 		mm.Put("key0", 20)
 
 		for i := 0; i < 8; i++ {
@@ -65,7 +65,7 @@ func isEqual(t *testing.T, got interface{}, want interface{}) {
 
 func TestBucketOverflow(t *testing.T) {
 	// create map with 8 elements(1 bucket)
-	mm := New[int](8)
+	mm := New[string, int](8)
 
 	values := []int{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}
 	prefix := "key_"
@@ -92,7 +92,7 @@ type NestedStruct struct {
 }
 
 func TestGet2(t *testing.T) {
-	m := New[NestedStruct](10)
+	m := New[string, NestedStruct](10)
 
 	emptyStruct := NestedStruct{}
 	m.Put("123", emptyStruct)
@@ -107,7 +107,7 @@ func TestGet2(t *testing.T) {
 
 func FuzzMap(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key string) {
-		m := New[string](1)
+		m := New[string, string](1)
 		m.Put(key, key)
 		if v := m.Get(key); v != key {
 			t.Fatal(v, "!==", key)
@@ -116,7 +116,7 @@ func FuzzMap(f *testing.F) {
 }
 
 func TestRange(t *testing.T) {
-	m := New[int64](100)
+	m := New[string, int64](100)
 
 	n := 100
 	wantKeys := make([]string, 0, n)
@@ -150,4 +150,90 @@ func TestRange(t *testing.T) {
 	sort.Slice(wantValues, i64Less(wantValues))
 	sort.Slice(gotValues, i64Less(gotValues))
 	isEqual(t, wantValues, gotValues)
+}
+
+type testcase[K comparable, V any] struct{}
+
+func (tt testcase[K, V]) test(t *testing.T, keys []K, values []V) {
+	if len(keys) != len(values) {
+		t.Fatalf("lengths of keys(%d) and values(%d) must be equal", len(keys), len(values))
+	}
+	m := New[K, V](len(keys))
+
+	for i, k := range keys {
+		m.Put(k, values[i])
+
+		got, ok := m.Get2(k)
+		isEqual(t, ok, true)
+		isEqual(t, got, values[i])
+	}
+}
+func TestDifferentKeyTypes(t *testing.T) {
+	t.Run("struct", func(t *testing.T) {
+		type keyStruct struct {
+			key     string
+			anyData [1]int
+		}
+
+		tests := testcase[keyStruct, string]{}
+		tests.test(
+			t,
+			[]keyStruct{
+				{key: "k1"}, {key: "k2", anyData: [1]int{1}}, {key: "k3"}, {key: "k4", anyData: [1]int{2}},
+				{key: "k5"}, {key: "k6", anyData: [1]int{3}}, {key: "k7"}, {key: "k8", anyData: [1]int{4}},
+				{key: "k9"},
+			},
+			[]string{"val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9"},
+		)
+	})
+
+	t.Run("array", func(t *testing.T) {
+		type keyArray [2]int
+
+		tests := testcase[keyArray, string]{}
+
+		tests.test(
+			t,
+			[]keyArray{{1, 2}, {2, 3}, {3, 4}, {4, 5}, {5, 6}, {6, 7}, {7, 8}, {8, 9}, {9, 10}},
+			[]string{"val1", "val2", "val3", "val4", "val5", "val6", "val7", "val8", "val9"},
+		)
+	})
+
+	t.Run("bools", func(t *testing.T) {
+		tests := testcase[bool, int]{}
+		tests.test(t, []bool{true, true, false, false, true}, []int{1, 0, 1, 0, 20})
+	})
+
+	t.Run("numbers", func(t *testing.T) {
+		t.Run("float64", func(t *testing.T) {
+			tests := testcase[float64, int]{}
+			tests.test(t, []float64{1.1, 2.2, 3.3, 4.4}, []int{1, 2, 3, 4})
+		})
+		t.Run("uint64", func(t *testing.T) {
+			tests := testcase[uint64, int]{}
+			tests.test(t, []uint64{1, 2, 3, 4}, []int{1, 2, 3, 4})
+		})
+		t.Run("int64", func(t *testing.T) {
+			tests := testcase[int64, int]{}
+			tests.test(t, []int64{1, 2, 3, 4}, []int{1, 2, 3, 4})
+		})
+		t.Run("complex64", func(t *testing.T) {
+			tests := testcase[complex64, int]{}
+			tests.test(t, []complex64{1 + 1i, 2 + 2i, 3 + 3i, 4 + 4i}, []int{1, 2, 3, 4})
+		})
+	})
+
+	t.Run("byte", func(t *testing.T) {
+		tests := testcase[byte, int]{}
+		tests.test(t, []byte{'1', '2', '3', '4'}, []int{1, 2, 3, 4})
+	})
+
+	t.Run("channel", func(t *testing.T) {
+		tests := testcase[chan int, int]{}
+		ch1, ch2, ch3, ch4 := make(chan int, 1), make(chan int, 1), make(chan int, 1), make(chan int, 1)
+		ch2 <- 2
+		ch3 <- 3
+		ch4 <- 4
+		tests.test(t, []chan int{ch1, ch2, ch3, ch4}, []int{1, 2, 3, 4})
+	})
 }

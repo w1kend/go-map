@@ -3,7 +3,7 @@ package gomap
 import (
 	"math/rand"
 
-	"github.com/dgryski/go-wyhash"
+	"github.com/dolthub/maphash"
 )
 
 const (
@@ -16,37 +16,35 @@ const (
 )
 
 // hmap - map struct
-type hmap[T any] struct {
-	len  int
-	b    uint8 // log_2 of # of buckets
-	seed uint64
+type hmap[K comparable, V any] struct {
+	len int
+	b   uint8 // log_2 of # of buckets
 
-	buckets []bucket[T]
+	buckets []bucket[K, V]
+	hasher  maphash.Hasher[K] // Go's runtime hasher
 }
 
-type Hashmap[T any] interface {
+type Hashmap[K comparable, V any] interface {
 	// gets the value for the given key.
-	// returns zero value for <T> if there is no value for the given key
-	Get(key string) T
+	// returns zero value for <V> if there is no value for the given key
+	Get(key K) V
 	// gets the value for the given key and the flag indicating whether the value exists
-	// returns zero value for <T> and false if there is no value for the given key
-	Get2(key string) (T, bool)
+	// returns zero value for <V> and false if there is no value for the given key
+	Get2(key K) (V, bool)
 	// puts value into the map
-	Put(key string, value T)
+	Put(key K, value V)
 	// deletes an element from the map
-	Delete(key string)
+	Delete(key K)
 	// iterates through the map and calls the given func for each key, value.
 	// if the given func returns false, loop breaks.
-	Range(f func(k string, v T) bool)
+	Range(f func(k K, v V) bool)
 	// returns the length of the map
 	Len() int
 }
 
 // New - creates a new map for <size> elements
-func New[T any](size int) Hashmap[T] {
-	h := new(hmap[T])
-
-	h.seed = generateSeed()
+func New[K comparable, V any](size int) Hashmap[K, V] {
+	h := new(hmap[K, V])
 
 	B := uint8(0)
 	for overLoadFactor(size, B) {
@@ -54,25 +52,26 @@ func New[T any](size int) Hashmap[T] {
 	}
 	h.b = B
 
-	h.buckets = make([]bucket[T], bucketsNum(h.b))
+	h.buckets = make([]bucket[K, V], bucketsNum(h.b))
+	h.hasher = maphash.NewHasher[K]()
 
 	return h
 }
 
-func (h hmap[T]) Get(key string) T {
+func (h hmap[K, V]) Get(key K) V {
 	tophash, targetBucket := h.locateBucket(key)
 
 	v, _ := h.buckets[targetBucket].Get(key, tophash)
 	return v
 }
 
-func (h hmap[T]) Get2(key string) (T, bool) {
+func (h hmap[K, V]) Get2(key K) (V, bool) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	return h.buckets[targetBucket].Get(key, tophash)
 }
 
-func (h hmap[T]) Put(key string, value T) {
+func (h hmap[K, V]) Put(key K, value V) {
 	tophash, targetBucket := h.locateBucket(key)
 
 	if h.buckets[targetBucket].Put(key, tophash, value) {
@@ -80,7 +79,7 @@ func (h hmap[T]) Put(key string, value T) {
 	}
 }
 
-func (h hmap[T]) Delete(key string) {
+func (h hmap[K, V]) Delete(key K) {
 	tophash, targetBucket := h.locateBucket(key)
 	if deleted := h.buckets[targetBucket].Delete(key, tophash); deleted {
 		h.len--
@@ -89,8 +88,8 @@ func (h hmap[T]) Delete(key string) {
 
 // locateBucket - returns bucket index, where to put/search a value
 // and tophash value from hash of the given key
-func (h hmap[T]) locateBucket(key string) (tophash uint8, targetBucket uint64) {
-	hash := hash(key, h.seed)
+func (h hmap[K, V]) locateBucket(key K) (tophash uint8, targetBucket uint64) {
+	hash := h.hasher.Hash(key)
 	tophash = topHash(hash)
 	mask := bucketMask(h.b)
 
@@ -125,21 +124,12 @@ func bucketMask(b uint8) uint64 {
 	return bucketsNum(b) - 1
 }
 
-func generateSeed() uint64 {
-	return rand.Uint64()
-}
-
 // overLoadFactor reports whether count items placed in 1<<B buckets is over loadFactor.
 func overLoadFactor(size int, B uint8) bool {
 	return size > bucketSize && uint64(size) > loadFactorNum*(bucketsNum(B)/loadFactorDen)
 }
 
-// hash - returns hash of the key
-func hash(key string, seed uint64) uint64 {
-	return wyhash.Hash([]byte(key), seed)
-}
-
-func (m hmap[T]) Range(f func(k string, v T) bool) {
+func (m hmap[K, V]) Range(f func(k K, v V) bool) {
 	for i := range m.randRangeSequence() {
 		bucket := &m.buckets[i]
 		for bucket != nil {
@@ -161,7 +151,7 @@ func (m hmap[T]) Range(f func(k string, v T) bool) {
 	}
 }
 
-func (m hmap[T]) randRangeSequence() []int {
+func (m hmap[K, V]) randRangeSequence() []int {
 	i := rand.Intn(len(m.buckets))
 
 	seq := make([]int, 0, len(m.buckets))
@@ -176,6 +166,6 @@ func (m hmap[T]) randRangeSequence() []int {
 	return seq
 }
 
-func (m hmap[T]) Len() int {
+func (m hmap[K, V]) Len() int {
 	return m.len
 }
