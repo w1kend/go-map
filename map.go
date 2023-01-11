@@ -1,7 +1,9 @@
 package gomap
 
 import (
+	"fmt"
 	"math/rand"
+	"strings"
 
 	"github.com/dolthub/maphash"
 )
@@ -13,6 +15,12 @@ const (
 	loadFactorDen = 2
 
 	ptrSize = 4 << (^uintptr(0) >> 63) // pointer size
+
+	// flags
+	iterator     = 1 // there may be an iterator using buckets
+	oldIterator  = 2 // there may be an iterator using oldbuckets
+	hashWriting  = 4 // a goroutine is writing to the map
+	sameSizeGrow = 8 // the current map growth is to a new map of the same size
 )
 
 // hmap - map struct
@@ -22,6 +30,11 @@ type hmap[K comparable, V any] struct {
 
 	buckets []bucket[K, V]
 	hasher  maphash.Hasher[K] // Go's runtime hasher
+
+	oldbuckets   *[]bucket[K, V]
+	numEvacuated uint64 // progress counter for evacuation (buckets less than this have been evacuated)
+
+	flags uint8
 }
 
 type Hashmap[K comparable, V any] interface {
@@ -40,6 +53,7 @@ type Hashmap[K comparable, V any] interface {
 	Range(f func(k K, v V) bool)
 	// returns the length of the map
 	Len() int
+	String() string
 }
 
 // New - creates a new map for <size> elements
@@ -58,37 +72,78 @@ func New[K comparable, V any](size int) Hashmap[K, V] {
 	return h
 }
 
-func (h hmap[K, V]) Get(key K) V {
+func (h *hmap[K, V]) Get(key K) V {
 	tophash, targetBucket := h.locateBucket(key)
 
-	v, _ := h.buckets[targetBucket].Get(key, tophash)
+	b := &h.buckets[targetBucket]
+
+	if h.isGrowing() {
+		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
+		if !oldB.isEvacuated() {
+			b = oldB
+		}
+	}
+
+	v, _ := b.Get(key, tophash)
 	return v
 }
 
-func (h hmap[K, V]) Get2(key K) (V, bool) {
+func (h *hmap[K, V]) Get2(key K) (V, bool) {
 	tophash, targetBucket := h.locateBucket(key)
 
-	return h.buckets[targetBucket].Get(key, tophash)
+	b := &h.buckets[targetBucket]
+
+	if h.isGrowing() {
+		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
+		if !oldB.isEvacuated() {
+			b = oldB
+		}
+	}
+
+	return b.Get(key, tophash)
 }
 
-func (h hmap[K, V]) Put(key K, value V) {
+func (h *hmap[K, V]) Put(key K, value V) {
 	tophash, targetBucket := h.locateBucket(key)
+
+	// evacuate old bucket first
+	if h.isGrowing() {
+		h.growWork(targetBucket)
+	}
 
 	if h.buckets[targetBucket].Put(key, tophash, value) {
 		h.len++
 	}
+
+	if !h.isGrowing() && overLoadFactor(h.len+1, h.b) {
+		h.startGrowth()
+	}
 }
 
-func (h hmap[K, V]) Delete(key K) {
+func (h *hmap[K, V]) Delete(key K) {
 	tophash, targetBucket := h.locateBucket(key)
-	if deleted := h.buckets[targetBucket].Delete(key, tophash); deleted {
+
+	b := &h.buckets[targetBucket]
+
+	if h.isGrowing() {
+		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
+		if !oldB.isEvacuated() {
+			b = oldB
+		}
+	}
+
+	if deleted := b.Delete(key, tophash); deleted {
 		h.len--
+	}
+
+	if !h.isGrowing() && overLoadFactor(h.len+1, h.b) {
+		h.startGrowth()
 	}
 }
 
 // locateBucket - returns bucket index, where to put/search a value
 // and tophash value from hash of the given key
-func (h hmap[K, V]) locateBucket(key K) (tophash uint8, targetBucket uint64) {
+func (h *hmap[K, V]) locateBucket(key K) (tophash uint8, targetBucket uint64) {
 	hash := h.hasher.Hash(key)
 	tophash = topHash(hash)
 	mask := bucketMask(h.b)
@@ -102,6 +157,17 @@ func (h hmap[K, V]) locateBucket(key K) (tophash uint8, targetBucket uint64) {
 	targetBucket = hash & mask
 
 	return tophash, targetBucket
+}
+
+func (h *hmap[K, V]) String() string {
+	buf := strings.Builder{}
+	buf.WriteString("go-map[")
+	h.Range(func(k K, v V) bool {
+		buf.WriteString(fmt.Sprintf("%v:%v ", k, v))
+		return true
+	})
+
+	return strings.TrimRight(buf.String(), " ") + "]"
 }
 
 // returns first 8 bits from the val
@@ -129,7 +195,7 @@ func overLoadFactor(size int, B uint8) bool {
 	return size > bucketSize && uint64(size) > loadFactorNum*(bucketsNum(B)/loadFactorDen)
 }
 
-func (m hmap[K, V]) Range(f func(k K, v V) bool) {
+func (m *hmap[K, V]) Range(f func(k K, v V) bool) {
 	for i := range m.randRangeSequence() {
 		bucket := &m.buckets[i]
 		for bucket != nil {
@@ -151,7 +217,7 @@ func (m hmap[K, V]) Range(f func(k K, v V) bool) {
 	}
 }
 
-func (m hmap[K, V]) randRangeSequence() []int {
+func (m *hmap[K, V]) randRangeSequence() []int {
 	i := rand.Intn(len(m.buckets))
 
 	seq := make([]int, 0, len(m.buckets))
@@ -166,6 +232,143 @@ func (m hmap[K, V]) randRangeSequence() []int {
 	return seq
 }
 
-func (m hmap[K, V]) Len() int {
+func (m *hmap[K, V]) Len() int {
 	return m.len
+}
+
+// sameSizeGrow reports whether the current growth is to a map of the same size.
+func (h *hmap[K, V]) sameSizeGrow() bool {
+	return h.flags&sameSizeGrow != 0
+}
+
+func (m *hmap[K, V]) isGrowing() bool {
+	return m.oldbuckets != nil
+}
+
+func (m *hmap[K, V]) growWork(bucket uint64) {
+	m.evacuate(bucket & m.oldBucketMask())
+
+	// evacuate one more oldbucket to make progress on growing
+	if m.isGrowing() {
+		m.evacuate(m.numEvacuated)
+	}
+}
+
+func (m *hmap[K, V]) evacuate(oldbucket uint64) {
+	b := &(*m.oldbuckets)[oldbucket]
+	newBit := m.numOldBuckets()
+
+	if !b.isEvacuated() {
+		// two halfs of the new buckets
+		halfs := [2]evacDst[K, V]{{b: &m.buckets[oldbucket]}}
+
+		if !m.sameSizeGrow() {
+			// Only calculate y pointers if we're growing bigger.
+			// Otherwise GC can see bad pointers.
+			halfs[1].b = &m.buckets[oldbucket+newBit]
+		}
+
+		var useSecond uint8
+		for ; b != nil; b = b.overflow {
+			// moving all values from the old bucket to the new one
+			for i := 0; i < bucketSize; i++ {
+				top := b.tophash[i]
+
+				if isCellEmpty(top) {
+					b.tophash[i] = evacuatedEmpty
+					continue
+				}
+
+				key := &b.keys[i]
+				value := &b.values[i]
+
+				hash := m.hasher.Hash(*key)
+
+				// decide where to evacuate the element.
+				// the first or the second half of the new buckets
+				//
+				// newBit == # of prev buckets. it's called like that because of it purpose
+				// the value represents new bit of our new mask(# of curr buckets - 1)
+				// if newBit == 8 (1000) then newMask == 15(1111) and oldMask == 7(0111)
+				// and in that case only the 4th bit(from the end) of mask matters
+				// because it decides whether targetBucket changes or not.
+				if !m.sameSizeGrow() && hash&newBit != 0 {
+					useSecond = 1
+				}
+
+				// evacuatedFirst + useSecond == evaluatedSecond
+				b.tophash[i] = evacuatedFirst + useSecond
+				dst := &halfs[useSecond]
+				// check bounds
+				if dst.i == bucketSize {
+					dst.b = newOverflow(dst.b)
+					dst.i = 0
+				}
+				dst.b.putAt(*key, top, *value, dst.i)
+				dst.i++
+			}
+		}
+	}
+
+	// сюда будем попадать каждый второй вызов evacuate() из growWork()
+	// т.к. там в oldbucket передается m.numEvacuated
+	if oldbucket == m.numEvacuated {
+		m.advanceEvacuationMark(newBit)
+	}
+}
+
+func (m *hmap[K, V]) advanceEvacuationMark(newBit uint64) {
+	m.numEvacuated++
+
+	stop := newBit + 1024
+	if stop > newBit {
+		stop = newBit
+	}
+
+	for m.numEvacuated != stop && (*m.oldbuckets)[m.numEvacuated].isEvacuated() {
+		m.numEvacuated++
+	}
+
+	if m.numEvacuated == newBit { // newbit == # of oldbuckets
+		// Growing is all done. Free old main bucket array.
+		m.oldbuckets = nil
+		m.flags &^= sameSizeGrow
+	}
+}
+
+// evacDst is an evacuation destination.
+type evacDst[K comparable, V any] struct {
+	b *bucket[K, V] // pointer to the bucket
+	i uint          // index for the next element in the destination bucket
+}
+
+// noldbuckets calculates the number of buckets prior to the current map growth.
+func (m *hmap[K, V]) numOldBuckets() uint64 {
+	oldB := m.b
+	if !m.sameSizeGrow() {
+		oldB--
+	}
+
+	return bucketsNum(oldB)
+}
+
+// oldbucketmask provides a mask that can be applied to calculate n % noldbuckets().
+func (m *hmap[K, V]) oldBucketMask() uint64 {
+	return m.numOldBuckets() - 1
+}
+
+func (m *hmap[K, V]) startGrowth() {
+	oldBuckets := &m.buckets
+	m.b++
+	m.buckets = make([]bucket[K, V], bucketsNum(m.b))
+	m.oldbuckets = oldBuckets
+	m.numEvacuated = 0
+}
+
+func newOverflow[K comparable, V any](b *bucket[K, V]) *bucket[K, V] {
+	if b.overflow == nil {
+		b.overflow = &bucket[K, V]{}
+	}
+
+	return b.overflow
 }
