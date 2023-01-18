@@ -26,7 +26,7 @@ const (
 // hmap - map struct
 type hmap[K comparable, V any] struct {
 	len int
-	b   uint8 // log_2 of # of buckets
+	B   uint8 // log_2 of # of buckets
 
 	buckets []bucket[K, V]
 	hasher  maphash.Hasher[K] // Go's runtime hasher
@@ -64,9 +64,9 @@ func New[K comparable, V any](size int) Hashmap[K, V] {
 	for overLoadFactor(size, B) {
 		B++
 	}
-	h.b = B
+	h.B = B
 
-	h.buckets = make([]bucket[K, V], bucketsNum(h.b))
+	h.buckets = make([]bucket[K, V], bucketsNum(h.B))
 	h.hasher = maphash.NewHasher[K]()
 
 	return h
@@ -77,7 +77,7 @@ func (h *hmap[K, V]) Get(key K) V {
 
 	b := &h.buckets[targetBucket]
 
-	if h.isGrowing() {
+	if h.isGrowing() && !h.sameSizeGrow() {
 		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
 		if !oldB.isEvacuated() {
 			b = oldB
@@ -115,7 +115,7 @@ func (h *hmap[K, V]) Put(key K, value V) {
 		h.len++
 	}
 
-	if !h.isGrowing() && overLoadFactor(h.len+1, h.b) {
+	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
 		h.startGrowth()
 	}
 }
@@ -136,7 +136,7 @@ func (h *hmap[K, V]) Delete(key K) {
 		h.len--
 	}
 
-	if !h.isGrowing() && overLoadFactor(h.len+1, h.b) {
+	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
 		h.startGrowth()
 	}
 }
@@ -146,7 +146,7 @@ func (h *hmap[K, V]) Delete(key K) {
 func (h *hmap[K, V]) locateBucket(key K) (tophash uint8, targetBucket uint64) {
 	hash := h.hasher.Hash(key)
 	tophash = topHash(hash)
-	mask := bucketMask(h.b)
+	mask := bucketMask(h.B)
 
 	// calculate target bucket number, from N available
 	// mask represents N-1
@@ -196,24 +196,12 @@ func overLoadFactor(size int, B uint8) bool {
 }
 
 func (m *hmap[K, V]) Range(f func(k K, v V) bool) {
-	for i := range m.randRangeSequence() {
-		bucket := &m.buckets[i]
-		for bucket != nil {
-			for j, th := range bucket.tophash {
-				// move to the next bucket when there are no values after index j
-				if th == emptyRest {
-					continue
-				}
-				// if there is a value at index j
-				if th >= minTopHash {
-					if !f(bucket.keys[j], bucket.values[j]) {
-						return
-					}
-				}
-			}
-			// check overflow buckets
-			bucket = bucket.overflow
+	iter := iterInit(m)
+	for iter.key != nil && iter.elem != nil {
+		if !f(*iter.key, *iter.elem) {
+			break
 		}
+		iter.next()
 	}
 }
 
@@ -268,7 +256,6 @@ func (m *hmap[K, V]) evacuate(oldbucket uint64) {
 			halfs[1].b = &m.buckets[oldbucket+newBit]
 		}
 
-		var useSecond uint8
 		for ; b != nil; b = b.overflow {
 			// moving all values from the old bucket to the new one
 			for i := 0; i < bucketSize; i++ {
@@ -287,11 +274,13 @@ func (m *hmap[K, V]) evacuate(oldbucket uint64) {
 				// decide where to evacuate the element.
 				// the first or the second half of the new buckets
 				//
-				// newBit == # of prev buckets. it's called like that because of it purpose
+				// newBit == # of prev buckets. it's called like that because of it's purpose
 				// the value represents new bit of our new mask(# of curr buckets - 1)
 				// if newBit == 8 (1000) then newMask == 15(1111) and oldMask == 7(0111)
 				// and in that case only the 4th bit(from the end) of mask matters
 				// because it decides whether targetBucket changes or not.
+
+				var useSecond uint8
 				if !m.sameSizeGrow() && hash&newBit != 0 {
 					useSecond = 1
 				}
@@ -310,8 +299,6 @@ func (m *hmap[K, V]) evacuate(oldbucket uint64) {
 		}
 	}
 
-	// сюда будем попадать каждый второй вызов evacuate() из growWork()
-	// т.к. там в oldbucket передается m.numEvacuated
 	if oldbucket == m.numEvacuated {
 		m.advanceEvacuationMark(newBit)
 	}
@@ -344,7 +331,7 @@ type evacDst[K comparable, V any] struct {
 
 // noldbuckets calculates the number of buckets prior to the current map growth.
 func (m *hmap[K, V]) numOldBuckets() uint64 {
-	oldB := m.b
+	oldB := m.B
 	if !m.sameSizeGrow() {
 		oldB--
 	}
@@ -358,11 +345,18 @@ func (m *hmap[K, V]) oldBucketMask() uint64 {
 }
 
 func (m *hmap[K, V]) startGrowth() {
-	oldBuckets := &m.buckets
-	m.b++
-	m.buckets = make([]bucket[K, V], bucketsNum(m.b))
-	m.oldbuckets = oldBuckets
+	oldBuckets := m.buckets
+	m.B++
+	m.buckets = make([]bucket[K, V], bucketsNum(m.B))
+	m.oldbuckets = &oldBuckets
 	m.numEvacuated = 0
+
+	flags := m.flags &^ (iterator | oldIterator) // remove iterators flags
+	if m.flags&iterator != 0 {
+		flags |= oldIterator
+	}
+
+	// actual growth happens in the evacuate() and growWork() functions
 }
 
 func newOverflow[K comparable, V any](b *bucket[K, V]) *bucket[K, V] {
@@ -371,4 +365,26 @@ func newOverflow[K comparable, V any](b *bucket[K, V]) *bucket[K, V] {
 	}
 
 	return b.overflow
+}
+
+func (m *hmap[K, V]) debug() {
+	fmt.Println("main buckets:")
+	for i, b := range m.buckets {
+		bk := &b
+		for bk != nil {
+			fmt.Printf("\t\t%d - %s\n", i, bk.debug())
+			bk = bk.overflow
+		}
+	}
+
+	if m.oldbuckets != nil {
+		fmt.Println("old buckets:")
+		for i, b := range *m.oldbuckets {
+			bk := &b
+			for bk != nil {
+				fmt.Printf("\t\t%d - %s\n", i, bk.debug())
+				bk = bk.overflow
+			}
+		}
+	}
 }

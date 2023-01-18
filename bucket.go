@@ -1,5 +1,10 @@
 package gomap
 
+import (
+	"fmt"
+	"strings"
+)
+
 const (
 	bucketSize = 8
 
@@ -25,23 +30,22 @@ type bucket[K comparable, V any] struct {
 // If an element doesn't exist for the given key returns zero value for <V> and false.
 func (b *bucket[K, V]) Get(key K, topHash uint8) (V, bool) {
 	bkt := b
-	for bkt != nil {
+bucketLoop:
+	for ; bkt != nil; bkt = bkt.overflow {
 		for i := range bkt.tophash {
 			top := bkt.tophash[i]
 			if top != topHash {
 				// if there are no filled cells we break the loop and return zero value
 				if top == emptyRest {
-					break
+					break bucketLoop
 				}
 				continue
 			}
 
-			if !isCellEmpty(top) && bkt.keys[i] == key {
+			if bkt.keys[i] == key {
 				return bkt.values[i], true
 			}
 		}
-
-		bkt = bkt.overflow
 	}
 
 	return *new(V), false
@@ -143,4 +147,14 @@ func isCellEmpty(val uint8) bool {
 func (b bucket[K, V]) isEvacuated() bool {
 	h := b.tophash[0]
 	return h > emptyCell && h < minTopHash
+}
+
+func (b bucket[K, V]) debug() string {
+	str := strings.Builder{}
+	str.WriteString("bucket[")
+	for i := range b.keys {
+		str.WriteString(fmt.Sprintf("%v:%v ", b.keys[i], b.values[i]))
+	}
+
+	return str.String()[:str.Len()-1] + "]"
 }
