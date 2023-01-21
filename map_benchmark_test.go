@@ -5,43 +5,42 @@ import (
 	"testing"
 )
 
-var sizes = []int{128, 1024, 8192}
+var sizes = []int{128, 8192, 32768, 131072}
 
 func BenchmarkGet(b *testing.B) {
 	for _, n := range sizes {
+		keys := make([]string, 0, n)
 		mm := New[string, int64](n)
+		stdm := make(map[string]int64, n)
+
 		for i := 0; i < n; i++ {
-			mm.Put(fmt.Sprintf("key__%d", i), int64(i)*2)
+			k := fmt.Sprintf("key__%d", i)
+			mm.Put(k, int64(i)*2)
+			stdm[k] = int64(i) * 2
+			keys = append(keys, k)
 		}
 
-		b.Run(fmt.Sprintf("generic-map_%d", n), func(b *testing.B) {
+		j := 0
+		b.Run(fmt.Sprintf("generic-map %d", n), func(b *testing.B) {
 			var got int64
-			j := 0
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
 				}
-				got = mm.Get(fmt.Sprintf("key__%d", j))
+				got = mm.Get(keys[j])
 				j++
 			}
 			_ = got
 		})
-	}
 
-	for _, n := range sizes {
-		stdm := make(map[string]int64, n)
-		for i := 0; i < n; i++ {
-			stdm[fmt.Sprintf("key__%d", i)] = int64(i) * 2
-		}
-
-		b.Run(fmt.Sprintf("std-map_%d", n), func(b *testing.B) {
+		j = 0
+		b.Run(fmt.Sprintf("STD-map     %d", n), func(b *testing.B) {
 			var got int64
-			j := 0
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
 				}
-				got = stdm[fmt.Sprintf("key__%d", j)]
+				got = stdm[keys[j]]
 				j++
 			}
 			_ = got
@@ -51,28 +50,34 @@ func BenchmarkGet(b *testing.B) {
 
 func BenchmarkPut(b *testing.B) {
 	for _, n := range sizes {
+		keys := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			keys = append(keys, fmt.Sprintf("key__%d", i))
+		}
 		mm := New[string, int64](n)
-		b.Run(fmt.Sprintf("generic-map_%d", n), func(b *testing.B) {
-			j := 0
+		j := 0
+		multiplier := 1
+		b.Run(fmt.Sprintf("generic-map %d", n), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
+					multiplier += 1
 				}
-				mm.Put(fmt.Sprintf("key__%d", j), int64(j))
+				mm.Put(keys[j], int64(j*multiplier))
 				j++
 			}
 		})
-	}
 
-	for _, n := range sizes {
+		j = 0
+		multiplier = 1
 		stdm := make(map[string]int64, n)
-		b.Run(fmt.Sprintf("std-map_%d", n), func(b *testing.B) {
-			j := 0
+		b.Run(fmt.Sprintf("STD-map     %d", n), func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
+					multiplier += 1
 				}
-				stdm[fmt.Sprintf("key__%d", j)] = int64(j)
+				stdm[keys[j]] = int64(j * multiplier)
 				j++
 			}
 		})
@@ -88,66 +93,41 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 	}
 
 	for _, n := range targetSize {
+		keys := make([]string, 0, n)
+		for i := 0; i < n; i++ {
+			keys = append(keys, fmt.Sprintf("key__%d", i))
+		}
+
 		mm := New[string, someStruct](startSize)
-		b.Run(fmt.Sprintf("gen-map(string key)__%d", n), func(b *testing.B) {
-			j := 0
+		j := 0
+		multiplier := 1
+		b.Run(fmt.Sprintf("gen-map(string key)  %d", n), func(b *testing.B) {
 			var key string
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
+					multiplier += 1
 				}
-				key = fmt.Sprintf("key__%d", j)
-				mm.Put(key, someStruct{x: key, y: j})
+				key = keys[j]
+				mm.Put(key, someStruct{x: key, y: j * multiplier})
 				j++
 			}
 		})
-	}
 
-	for _, n := range targetSize {
 		stdm := make(map[string]someStruct, startSize)
-		b.Run(fmt.Sprintf("std(string key)__%d", n), func(b *testing.B) {
-			j := 0
+		j = 0
+		multiplier = 1
+		b.Run(fmt.Sprintf("STD(string key)      %d", n), func(b *testing.B) {
 			var key string
 			for i := 0; i < b.N; i++ {
-				if j > n {
+				if j == n {
 					j = 0
+					multiplier += 1
 				}
-				key = fmt.Sprintf("key__%d", j)
-				stdm[key] = someStruct{x: key, y: j}
+				key = keys[j]
+				stdm[key] = someStruct{x: key, y: j * multiplier}
 				j++
 			}
 		})
 	}
-
-	// for _, n := range targetSize {
-	// 	mm := New[int, someStruct](startSize)
-	// 	b.Run(fmt.Sprintf("gen-map(int key)__%d", n), func(b *testing.B) {
-	// 		j := 0
-	// 		var key string
-	// 		for i := 0; i < b.N; i++ {
-	// 			if j > n {
-	// 				j = 0
-	// 			}
-	// 			key = fmt.Sprintf("key__%d", j)
-	// 			mm.Put(j, someStruct{x: key, y: j})
-	// 			j++
-	// 		}
-	// 	})
-	// }
-
-	// for _, n := range targetSize {
-	// 	stdm := make(map[int]someStruct, startSize)
-	// 	b.Run(fmt.Sprintf("std(int key)__%d", n), func(b *testing.B) {
-	// 		j := 0
-	// 		var key string
-	// 		for i := 0; i < b.N; i++ {
-	// 			if j > n {
-	// 				j = 0
-	// 			}
-	// 			key = fmt.Sprintf("key__%d", j)
-	// 			stdm[j] = someStruct{x: key, y: j}
-	// 			j++
-	// 		}
-	// 	})
-	// }
 }

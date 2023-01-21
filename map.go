@@ -2,7 +2,6 @@ package gomap
 
 import (
 	"fmt"
-	"math/rand"
 	"strings"
 
 	"github.com/dolthub/maphash"
@@ -73,18 +72,7 @@ func New[K comparable, V any](size int) Hashmap[K, V] {
 }
 
 func (h *hmap[K, V]) Get(key K) V {
-	tophash, targetBucket := h.locateBucket(key)
-
-	b := &h.buckets[targetBucket]
-
-	if h.isGrowing() && !h.sameSizeGrow() {
-		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
-		if !oldB.isEvacuated() {
-			b = oldB
-		}
-	}
-
-	v, _ := b.Get(key, tophash)
+	v, _ := h.Get2(key)
 	return v
 }
 
@@ -203,21 +191,6 @@ func (m *hmap[K, V]) Range(f func(k K, v V) bool) {
 		}
 		iter.next()
 	}
-}
-
-func (m *hmap[K, V]) randRangeSequence() []int {
-	i := rand.Intn(len(m.buckets))
-
-	seq := make([]int, 0, len(m.buckets))
-	for len(seq) != len(m.buckets) {
-		seq = append(seq, i)
-		i++
-		if i >= len(m.buckets) {
-			i = 0
-		}
-	}
-
-	return seq
 }
 
 func (m *hmap[K, V]) Len() int {
