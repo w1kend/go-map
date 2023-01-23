@@ -101,7 +101,7 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 		mm := New[string, someStruct](startSize)
 		j := 0
 		multiplier := 1
-		b.Run(fmt.Sprintf("gen-map(string key)  %d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("gen-map  (string key)%d", n), func(b *testing.B) {
 			var key string
 			for i := 0; i < b.N; i++ {
 				if j == n {
@@ -117,7 +117,7 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 		stdm := make(map[string]someStruct, startSize)
 		j = 0
 		multiplier = 1
-		b.Run(fmt.Sprintf("STD(string key)      %d", n), func(b *testing.B) {
+		b.Run(fmt.Sprintf("STD      (string key)%d", n), func(b *testing.B) {
 			var key string
 			for i := 0; i < b.N; i++ {
 				if j == n {

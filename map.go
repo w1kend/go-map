@@ -94,6 +94,11 @@ func (h *hmap[K, V]) Get2(key K) (V, bool) {
 func (h *hmap[K, V]) Put(key K, value V) {
 	tophash, targetBucket := h.locateBucket(key)
 
+	// start growing if adding an element will trigger overload
+	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
+		h.startGrowth()
+	}
+
 	// evacuate old bucket first
 	if h.isGrowing() {
 		h.growWork(targetBucket)
@@ -101,10 +106,6 @@ func (h *hmap[K, V]) Put(key K, value V) {
 
 	if h.buckets[targetBucket].Put(key, tophash, value) {
 		h.len++
-	}
-
-	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
-		h.startGrowth()
 	}
 }
 
@@ -122,10 +123,6 @@ func (h *hmap[K, V]) Delete(key K) {
 
 	if deleted := b.Delete(key, tophash); deleted {
 		h.len--
-	}
-
-	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
-		h.startGrowth()
 	}
 }
 
@@ -207,6 +204,8 @@ func (m *hmap[K, V]) isGrowing() bool {
 }
 
 func (m *hmap[K, V]) growWork(bucket uint64) {
+	// make sure we evacuate the oldbucket corresponding
+	// to the bucket we're about to use
 	m.evacuate(bucket & m.oldBucketMask())
 
 	// evacuate one more oldbucket to make progress on growing
