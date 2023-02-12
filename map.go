@@ -77,6 +77,10 @@ func (h *hmap[K, V]) Get(key K) V {
 }
 
 func (h *hmap[K, V]) Get2(key K) (V, bool) {
+	if h.flags&hashWriting != 0 {
+		panic("concurrent map access and write")
+	}
+
 	tophash, targetBucket := h.locateBucket(key)
 
 	b := &h.buckets[targetBucket]
@@ -92,6 +96,11 @@ func (h *hmap[K, V]) Get2(key K) (V, bool) {
 }
 
 func (h *hmap[K, V]) Put(key K, value V) {
+	if h.flags&hashWriting != 0 {
+		panic("concurrent map access and write")
+	}
+	h.flags ^= hashWriting
+
 	tophash, targetBucket := h.locateBucket(key)
 
 	// start growing if adding an element will trigger overload
@@ -107,9 +116,19 @@ func (h *hmap[K, V]) Put(key K, value V) {
 	if h.buckets[targetBucket].Put(key, tophash, value) {
 		h.len++
 	}
+	if h.flags&hashWriting == 0 {
+		panic("concurrent map writes")
+	}
+	h.flags &^= hashWriting
 }
 
 func (h *hmap[K, V]) Delete(key K) {
+	if h.flags&hashWriting != 0 {
+		panic("concurrent map writes")
+	}
+
+	h.flags ^= hashWriting
+
 	tophash, targetBucket := h.locateBucket(key)
 
 	b := &h.buckets[targetBucket]
@@ -124,6 +143,10 @@ func (h *hmap[K, V]) Delete(key K) {
 	if deleted := b.Delete(key, tophash); deleted {
 		h.len--
 	}
+	if h.flags&hashWriting == 0 {
+		panic("concurrent map writes")
+	}
+	h.flags &^= hashWriting
 }
 
 // locateBucket - returns bucket index, where to put/search a value

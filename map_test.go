@@ -74,6 +74,9 @@ func TestBucketOverflow(t *testing.T) {
 		mm.Put(fmt.Sprintf("%s%d", prefix, v), v)
 	}
 
+	dm := mm.(*hmap[string, int])
+	dm.debug()
+
 	for _, v := range values {
 		got := mm.Get(fmt.Sprintf("%s%d", prefix, v))
 		isEqual(t, got, v)

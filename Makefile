@@ -1,11 +1,14 @@
 test:
-	go test .
+	go test ./... -count=1
 
 bench:
 	go test . -run=^$$ -bench . -benchmem
 
 bench-overflow:
 	go test . -run=^$$ -bench ^BenchmarkPutWithOverflow$$ -benchmem
+
+bench-overflow-arena:
+	GOEXPERIMENT=arenas go test . -run=^$$ -bench ^BenchmarkPutWithOverflow$$ -benchmem
 
 bench-overflow-profile:
 	go test . -run=^$$ -bench ^BenchmarkPutWithOverflow$$ -benchmem -cpuprofile cpu.out && \
