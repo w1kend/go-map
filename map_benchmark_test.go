@@ -3,6 +3,7 @@ package gomap
 import (
 	"fmt"
 	"testing"
+	"time"
 )
 
 var sizes = []int{128, 8192, 32768, 131072}
@@ -88,14 +89,30 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 	startSize := 1_000
 	targetSize := []int{10_000, 100_000, 1_000_000, 10_000_000}
 	type someStruct struct {
-		x string
-		y int
+		x    string
+		y    int
+		f1   string
+		f2   int
+		f3   int64
+		f4   []int
+		crat time.Time
+		upat time.Time
 	}
 
 	for _, n := range targetSize {
 		keys := make([]string, 0, n)
 		for i := 0; i < n; i++ {
 			keys = append(keys, fmt.Sprintf("key__%d", i))
+		}
+		entity := someStruct{
+			x:    "dsgsgfdg",
+			y:    1232,
+			f1:   "dsfsjjdfs",
+			f2:   93923,
+			f3:   129887832,
+			f4:   []int{1231, 324543, 12321, 58786, 67967},
+			crat: time.Now().Add(time.Hour),
+			upat: time.Now().Add(time.Hour * 10),
 		}
 
 		mm := New[string, someStruct](startSize)
@@ -109,7 +126,7 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 					multiplier += 1
 				}
 				key = keys[j]
-				mm.Put(key, someStruct{x: key, y: j * multiplier})
+				mm.Put(key, entity)
 				j++
 			}
 		})
@@ -125,7 +142,7 @@ func BenchmarkPutWithOverflow(b *testing.B) {
 					multiplier += 1
 				}
 				key = keys[j]
-				stdm[key] = someStruct{x: key, y: j * multiplier}
+				stdm[key] = entity
 				j++
 			}
 		})

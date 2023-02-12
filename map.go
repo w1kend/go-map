@@ -85,13 +85,6 @@ func (h *hmap[K, V]) Get2(key K) (V, bool) {
 
 	b := &h.buckets[targetBucket]
 
-	if h.isGrowing() {
-		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
-		if !oldB.isEvacuated() {
-			b = oldB
-		}
-	}
-
 	return b.Get(key, tophash)
 }
 
@@ -101,18 +94,13 @@ func (h *hmap[K, V]) Put(key K, value V) {
 	}
 	h.flags ^= hashWriting
 
-	tophash, targetBucket := h.locateBucket(key)
-
 	// start growing if adding an element will trigger overload
-	if !h.isGrowing() && overLoadFactor(h.len+1, h.B) {
+	if overLoadFactor(h.len+1, h.B) {
 		h.startGrowth()
+		h.evacuate()
 	}
 
-	// evacuate old bucket first
-	if h.isGrowing() {
-		h.growWork(targetBucket)
-	}
-
+	tophash, targetBucket := h.locateBucket(key)
 	if h.buckets[targetBucket].Put(key, tophash, value) {
 		h.len++
 	}
@@ -130,15 +118,7 @@ func (h *hmap[K, V]) Delete(key K) {
 	h.flags ^= hashWriting
 
 	tophash, targetBucket := h.locateBucket(key)
-
 	b := &h.buckets[targetBucket]
-
-	if h.isGrowing() {
-		oldB := &(*h.oldbuckets)[targetBucket&h.oldBucketMask()]
-		if !oldB.isEvacuated() {
-			b = oldB
-		}
-	}
 
 	if deleted := b.Delete(key, tophash); deleted {
 		h.len--
@@ -217,105 +197,63 @@ func (m *hmap[K, V]) Len() int {
 	return m.len
 }
 
-// sameSizeGrow reports whether the current growth is to a map of the same size.
-func (h *hmap[K, V]) sameSizeGrow() bool {
-	return h.flags&sameSizeGrow != 0
-}
-
-func (m *hmap[K, V]) isGrowing() bool {
-	return m.oldbuckets != nil
-}
-
-func (m *hmap[K, V]) growWork(bucket uint64) {
-	// make sure we evacuate the oldbucket corresponding
-	// to the bucket we're about to use
-	m.evacuate(bucket & m.oldBucketMask())
-
-	// evacuate one more oldbucket to make progress on growing
-	if m.isGrowing() {
-		m.evacuate(m.numEvacuated)
-	}
-}
-
-func (m *hmap[K, V]) evacuate(oldbucket uint64) {
-	b := &(*m.oldbuckets)[oldbucket]
+func (m *hmap[K, V]) evacuate() {
 	newBit := m.numOldBuckets()
 
-	if !b.isEvacuated() {
-		// two halfs of the new buckets
-		halfs := [2]evacDst[K, V]{{b: &m.buckets[oldbucket]}}
+	for oldbucket, oldB := range *m.oldbuckets {
+		newbucket := oldbucket + int(newBit)
+		if !oldB.isEvacuated() {
+			// two halfs of the new buckets
+			halfs := [2]evacDst[K, V]{
+				{b: &m.buckets[oldbucket]},
+				{b: &m.buckets[newbucket]},
+			}
+			b := &oldB
+			for ; b != nil; b = b.overflow {
+				// moving all values from the old bucket to the new one
+				for i := 0; i < bucketSize; i++ {
+					top := b.tophash[i]
 
-		if !m.sameSizeGrow() {
-			// Only calculate y pointers if we're growing bigger.
-			// Otherwise GC can see bad pointers.
-			halfs[1].b = &m.buckets[oldbucket+newBit]
-		}
+					if isCellEmpty(top) {
+						b.tophash[i] = evacuatedEmpty
+						continue
+					}
 
-		for ; b != nil; b = b.overflow {
-			// moving all values from the old bucket to the new one
-			for i := 0; i < bucketSize; i++ {
-				top := b.tophash[i]
+					key := &b.keys[i]
+					value := &b.values[i]
 
-				if isCellEmpty(top) {
-					b.tophash[i] = evacuatedEmpty
-					continue
+					hash := m.hasher.Hash(*key)
+
+					// decide where to evacuate the element.
+					// the first or the second half of the new buckets
+					//
+					// newBit == # of prev buckets. it's called like that because of it's purpose
+					// the value represents new bit of our new mask(# of curr buckets - 1)
+					// if newBit == 8 (1000) then newMask == 15(1111) and oldMask == 7(0111)
+					// and in that case only the 4th bit(from the end) of mask matters
+					// because it decides whether targetBucket changes or not.
+
+					var useSecond uint8
+					if hash&newBit != 0 {
+						useSecond = 1
+					}
+
+					// evacuatedFirst + useSecond == evaluatedSecond
+					b.tophash[i] = evacuatedFirst + useSecond
+					dst := &halfs[useSecond]
+					// check bounds
+					if dst.i == bucketSize {
+						dst.b = newOverflow(dst.b)
+						dst.i = 0
+					}
+					dst.b.putAt(*key, top, *value, dst.i)
+					dst.i++
 				}
-
-				key := &b.keys[i]
-				value := &b.values[i]
-
-				hash := m.hasher.Hash(*key)
-
-				// decide where to evacuate the element.
-				// the first or the second half of the new buckets
-				//
-				// newBit == # of prev buckets. it's called like that because of it's purpose
-				// the value represents new bit of our new mask(# of curr buckets - 1)
-				// if newBit == 8 (1000) then newMask == 15(1111) and oldMask == 7(0111)
-				// and in that case only the 4th bit(from the end) of mask matters
-				// because it decides whether targetBucket changes or not.
-
-				var useSecond uint8
-				if !m.sameSizeGrow() && hash&newBit != 0 {
-					useSecond = 1
-				}
-
-				// evacuatedFirst + useSecond == evaluatedSecond
-				b.tophash[i] = evacuatedFirst + useSecond
-				dst := &halfs[useSecond]
-				// check bounds
-				if dst.i == bucketSize {
-					dst.b = newOverflow(dst.b)
-					dst.i = 0
-				}
-				dst.b.putAt(*key, top, *value, dst.i)
-				dst.i++
 			}
 		}
 	}
 
-	if oldbucket == m.numEvacuated {
-		m.advanceEvacuationMark(newBit)
-	}
-}
-
-func (m *hmap[K, V]) advanceEvacuationMark(newBit uint64) {
-	m.numEvacuated++
-
-	stop := newBit + 1024
-	if stop > newBit {
-		stop = newBit
-	}
-
-	for m.numEvacuated != stop && (*m.oldbuckets)[m.numEvacuated].isEvacuated() {
-		m.numEvacuated++
-	}
-
-	if m.numEvacuated == newBit { // newbit == # of oldbuckets
-		// Growing is all done. Free old main bucket array.
-		m.oldbuckets = nil
-		m.flags &^= sameSizeGrow
-	}
+	m.oldbuckets = nil
 }
 
 // evacDst is an evacuation destination.
@@ -327,9 +265,7 @@ type evacDst[K comparable, V any] struct {
 // noldbuckets calculates the number of buckets prior to the current map growth.
 func (m *hmap[K, V]) numOldBuckets() uint64 {
 	oldB := m.B
-	if !m.sameSizeGrow() {
-		oldB--
-	}
+	oldB--
 
 	return bucketsNum(oldB)
 }
