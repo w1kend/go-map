@@ -3,6 +3,8 @@ package gomap
 import (
 	"fmt"
 	"testing"
+
+	"github.com/tidwall/hashmap"
 )
 
 var sizes = []int{128, 8192, 32768, 131072}
@@ -11,12 +13,14 @@ func BenchmarkGet(b *testing.B) {
 	for _, n := range sizes {
 		keys := make([]string, 0, n)
 		mm := New[string, int64](n)
+		openAddrMap := hashmap.New[string, int64](n)
 		stdm := make(map[string]int64, n)
 
 		for i := 0; i < n; i++ {
 			k := fmt.Sprintf("key__%d", i)
 			mm.Put(k, int64(i)*2)
 			stdm[k] = int64(i) * 2
+			openAddrMap.Set(k, int64(i)*2)
 			keys = append(keys, k)
 		}
 
@@ -45,6 +49,20 @@ func BenchmarkGet(b *testing.B) {
 			}
 			_ = got
 		})
+
+		j = 0
+		b.Run(fmt.Sprintf("tidwall-hashmap (open-addressing hashmap) %d", n), func(b *testing.B) {
+			var got int64
+			for i := 0; i < b.N; i++ {
+				if j == n {
+					j = 0
+				}
+				got, _ = openAddrMap.Get(keys[j])
+				j++
+			}
+			_ = got
+		})
+
 	}
 }
 
